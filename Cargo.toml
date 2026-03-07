@@ -1,0 +1,43 @@
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.dependencies]
+# GPUI from the fork that has wlr-layer-shell support built in
+gpui = { git = "https://github.com/andre-brandao/zed", branch = "fix/target_dispay", features = ["wayland"] }
+
+# Internal crates
+runtime = { path = "crates/runtime" }
+services = { path = "crates/services" }
+assets   = { path = "crates/assets"  }
+
+# Lua runtime — vendored so no system Lua required
+mlua = { version = "0.10", features = ["lua54", "vendored"] }
+
+# Async / futures
+tokio        = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+futures      = "0.3"
+futures-util = { version = "0.3", default-features = false }
+
+# System integration
+zbus      = "5"
+inotify   = "0.11"
+hyprland  = "0.4.0-beta.2"
+niri-ipc  = "=25.11.0"
+
+# Utilities
+anyhow            = "1"
+serde             = { version = "1", features = ["derive"] }
+serde_json        = "1"
+tracing           = { version = "0.1", features = ["log"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono            = "0.4"
+itertools         = "0.14"
+
+[profile.release]
+codegen-units = 1
+lto           = true
+panic         = "abort"
+opt-level     = "z"
+strip         = true
+debug         = false
