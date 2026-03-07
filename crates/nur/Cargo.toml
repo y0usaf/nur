@@ -1,0 +1,17 @@
+[package]
+name    = "nur"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "nur"
+path = "src/main.rs"
+
+[dependencies]
+gpui.workspace    = true
+runtime.workspace = true
+assets.workspace  = true
+
+anyhow             = { workspace = true }
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true }
