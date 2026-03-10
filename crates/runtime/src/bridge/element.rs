@@ -18,16 +18,23 @@
 use gpui::{AnyElement, div, px, prelude::*};
 use mlua::prelude::*;
 
+/// A UI element parsed from a Lua tagged table, before GPU rendering.
+///
+/// Lua render functions produce a tree of these; `into_any_element` converts
+/// the whole tree to GPUI elements in one pass. Lua is never called during
+/// the GPU draw phase.
 #[derive(Debug, Clone)]
 pub enum LuaElement {
     HBox {
         gap: f32,
         padding: [f32; 4], // top right bottom left
+        fill: bool,        // flex_1: grow to fill parent width
         children: Vec<LuaElement>,
     },
     VBox {
         gap: f32,
         padding: [f32; 4],
+        fill: bool,
         children: Vec<LuaElement>,
     },
     Text {
@@ -50,15 +57,17 @@ impl LuaElement {
             "hbox" | "hstack" => {
                 let gap = table.get("gap").unwrap_or(0.0_f32);
                 let padding = parse_padding(&table);
+                let fill: bool = table.get("fill").unwrap_or(false);
                 let children = parse_children(&table)?;
-                Ok(LuaElement::HBox { gap, padding, children })
+                Ok(LuaElement::HBox { gap, padding, fill, children })
             }
 
             "vbox" | "vstack" => {
                 let gap = table.get("gap").unwrap_or(0.0_f32);
                 let padding = parse_padding(&table);
+                let fill: bool = table.get("fill").unwrap_or(false);
                 let children = parse_children(&table)?;
-                Ok(LuaElement::VBox { gap, padding, children })
+                Ok(LuaElement::VBox { gap, padding, fill, children })
             }
 
             "text" | "label" => {
@@ -88,30 +97,33 @@ impl LuaElement {
     /// Convert to a GPUI `AnyElement` ready for rendering.
     pub fn into_any_element(self) -> AnyElement {
         match self {
-            LuaElement::HBox { gap, padding: [pt, pr, pb, pl], children } => div()
-                .flex()
-                .flex_row()
-                .flex_1()     // fill available width so spacers push to edges
-                .items_center()
-                .h_full()
-                .gap(px(gap))
-                .pt(px(pt))
-                .pr(px(pr))
-                .pb(px(pb))
-                .pl(px(pl))
-                .children(children.into_iter().map(|c| c.into_any_element()))
-                .into_any_element(),
+            LuaElement::HBox { gap, padding: [pt, pr, pb, pl], fill, children } => {
+                let el = div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .h_full()
+                    .gap(px(gap))
+                    .pt(px(pt))
+                    .pr(px(pr))
+                    .pb(px(pb))
+                    .pl(px(pl))
+                    .children(children.into_iter().map(|c| c.into_any_element()));
+                if fill { el.flex_1().into_any_element() } else { el.into_any_element() }
+            }
 
-            LuaElement::VBox { gap, padding: [pt, pr, pb, pl], children } => div()
-                .flex()
-                .flex_col()
-                .gap(px(gap))
-                .pt(px(pt))
-                .pr(px(pr))
-                .pb(px(pb))
-                .pl(px(pl))
-                .children(children.into_iter().map(|c| c.into_any_element()))
-                .into_any_element(),
+            LuaElement::VBox { gap, padding: [pt, pr, pb, pl], fill, children } => {
+                let el = div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(gap))
+                    .pt(px(pt))
+                    .pr(px(pr))
+                    .pb(px(pb))
+                    .pl(px(pl))
+                    .children(children.into_iter().map(|c| c.into_any_element()));
+                if fill { el.flex_1().into_any_element() } else { el.into_any_element() }
+            }
 
             LuaElement::Text { content, size } => {
                 let el = div().child(content);

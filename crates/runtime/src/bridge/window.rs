@@ -22,7 +22,13 @@ use crate::bridge::element::LuaElement;
 // LuaView — the GPUI view whose content is defined by a Lua function
 // ---------------------------------------------------------------------------
 
+/// The GPUI view whose content is driven by a Lua render function.
+///
+/// GPUI calls `render` on every dirty frame. The render function is stored
+/// as a `LuaRegistryKey` (which is `'static`) rather than a `LuaFunction`
+/// (which is lifetime-bound and cannot be stored in a struct).
 pub struct LuaView {
+    /// Registry key for the Lua render function; `None` until `handle:render(fn)` is called.
     render_key: Option<LuaRegistryKey>,
     bg:        u32,
     fg:        u32,
@@ -72,6 +78,7 @@ impl Render for LuaView {
         div()
             .size_full()
             .flex()
+            .items_center()
             .bg(gpui::rgb(bg))
             .text_color(gpui::rgb(fg))
             .text_size(px(font_size))
@@ -84,6 +91,8 @@ impl Render for LuaView {
 // LuaWindowHandle — Lua userdata returned by shell.window()
 // ---------------------------------------------------------------------------
 
+/// Lua userdata returned by `shell.window()`. Weak reference so the handle
+/// does not keep the window alive if GPUI closes it.
 #[derive(Clone)]
 pub struct LuaWindowHandle {
     entity: WeakEntity<LuaView>,
@@ -143,9 +152,12 @@ impl BarPosition {
     }
 }
 
+/// Configuration for a layer-shell window, parsed from the Lua `shell.window({})` call.
 pub struct WindowConfig {
     pub position:  BarPosition,
+    /// Thickness in pixels — height for top/bottom bars, width for left/right.
     pub size:      f32,
+    /// If true, an exclusive zone is set so other windows don't overlap the bar.
     pub exclusive: bool,
     pub layer:     Layer,
     pub bg:        u32,  // 0xRRGGBB

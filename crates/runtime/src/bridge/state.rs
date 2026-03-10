@@ -28,7 +28,8 @@ struct StateInner {
     notifiers: Vec<Notifier>,
 }
 
-/// A reactive Lua state value.
+/// A reactive Lua value. When set, registered notifiers fire and every GPUI
+/// view is marked dirty, triggering a re-render on the next frame.
 #[derive(Clone)]
 pub struct LuaState {
     inner: Rc<RefCell<StateInner>>,
@@ -61,7 +62,9 @@ impl LuaState {
     }
 
     /// Register a callback that fires whenever this state changes.
-    /// Typically used by GPUI views to schedule re-renders.
+    ///
+    /// Used internally by `subscribe` (called from Lua) and by the view
+    /// registration path in `window.rs` to trigger `cx.notify()`.
     pub fn add_notifier(&self, f: impl Fn() + 'static) {
         self.inner.borrow_mut().notifiers.push(Rc::new(f));
     }
