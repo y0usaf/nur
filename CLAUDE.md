@@ -1,4 +1,4 @@
-# Lumen — AI Development Guide
+# nur — AI Development Guide
 
 Read `ARCHITECTURE.md` first for the full technical picture.
 
@@ -6,9 +6,9 @@ Read `ARCHITECTURE.md` first for the full technical picture.
 
 ## Project identity
 
-Lumen is a **GPU-accelerated Lua-scriptable Wayland desktop shell** — think
+nur is a **GPU-accelerated Lua-scriptable Wayland desktop shell** — think
 AGS/EWW/QuickShell but built on GPUI (Zed's UI framework) instead of GTK/Qt.
-Users write `~/.config/lumen/init.lua` to define bars, overlays, and widgets.
+Users write `~/.config/nur/init.lua` to define bars, overlays, and widgets.
 Rust handles rendering, window management, and system service integration.
 
 ---
@@ -94,17 +94,17 @@ nix develop
 cargo check
 
 # Build
-cargo build --bin lumen
+cargo build --bin nur
 
 # Run (must be inside nix develop for library paths)
-./target/debug/lumen
+./target/debug/nur
 
 # Install example config
-cp examples/simple-bar/init.lua ~/.config/lumen/init.lua
+cp examples/simple-bar/init.lua ~/.config/nur/init.lua
 ```
 
-The config path resolution order: `$LUMEN_CONFIG` → `$XDG_CONFIG_HOME/lumen/init.lua`
-→ `~/.config/lumen/init.lua`.
+The config path resolution order: `$NUR_CONFIG` → `$XDG_CONFIG_HOME/nur/init.lua`
+→ `~/.config/nur/init.lua`.
 
 ---
 
@@ -162,7 +162,7 @@ WindowKind::LayerShell(LayerShellOptions {
 ## File map
 
 ```
-crates/lumen/src/
+crates/nur/src/
   main.rs         — entry point; Application::new().with_assets().run()
   config.rs       — config file location resolution
 
