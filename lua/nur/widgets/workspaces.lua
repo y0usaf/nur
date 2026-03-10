@@ -13,15 +13,15 @@ function M.new(opts)
     opts = opts or {}
 
     local self = {}
-    self._state = shell.state(shell.services.compositor)
 
     function self:render()
-        local comp = self._state:get()
+        local comp = shell.services.compositor:get()
+        local active = comp.active_workspace
         local items = {}
         for _, ws in ipairs(comp.workspaces or {}) do
             items[#items + 1] = ui.text({
                 content = ws.name or tostring(ws.id),
-                -- TODO: highlight active workspace via style props
+                -- TODO: highlight active workspace via style props once supported
             })
         end
         return ui.hbox({ gap = 4, children = items })
