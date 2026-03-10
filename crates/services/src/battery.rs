@@ -40,17 +40,19 @@ impl BatteryService {
             // needs to propagate the change to a LuaState so shell.services.battery
             // reflects the new value — see the services.rs TODO comment.
 
-            // Placeholder: poll sysfs every 30 s
+            // Poll sysfs every 30 s
             loop {
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(30))
                     .await;
 
                 let percent = read_sysfs_percent();
+                let charging = read_sysfs_charging();
                 cx.update(|cx| {
                     if let Some(e) = weak.upgrade() {
                         e.update(cx, |state, cx| {
                             state.percent = percent;
+                            state.charging = charging;
                             cx.notify();
                         });
                     }
@@ -68,4 +70,11 @@ fn read_sysfs_percent() -> u8 {
         .ok()
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(100)
+}
+
+fn read_sysfs_charging() -> bool {
+    std::fs::read_to_string("/sys/class/power_supply/BAT0/status")
+        .ok()
+        .map(|s| s.trim() == "Charging")
+        .unwrap_or(false)
 }

@@ -2949,18 +2949,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lumen"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "assets",
- "gpui",
- "runtime",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "lyon"
 version = "1.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3417,6 +3405,18 @@ checksum = "91df4bbde75afed763b708b7eee1e8e7651e02d97f6d5dd763e89367e957b23b"
 dependencies = [
  "hermit-abi",
  "libc",
+]
+
+[[package]]
+name = "nur"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assets",
+ "gpui",
+ "runtime",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

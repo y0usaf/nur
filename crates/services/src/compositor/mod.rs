@@ -27,6 +27,8 @@ pub struct CompositorState {
 pub struct CompositorService;
 
 impl CompositorService {
+    /// Auto-detect the running compositor and start the appropriate IPC backend.
+    /// Returns a GPUI entity holding current workspace/window state.
     pub fn start(cx: &mut App) -> Entity<CompositorState> {
         let entity = cx.new(|_| CompositorState::default());
 
