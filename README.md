@@ -80,17 +80,23 @@ Config is loaded from (in order):
 | `shell.state(val)` | Create a reactive state value |
 | `shell.interval(ms, fn)` | Run a callback on a timer |
 | `shell.once(fn)` | Run a callback after init |
-| `shell.exec(cmd)` | Run a shell command asynchronously |
-| `shell.watch_file(path, fn)` | Watch a file for changes |
+| `shell.exec(cmd)` | Run a shell command synchronously (use during init only) |
+| `shell.exec_async(cmd, fn)` | Run a shell command without blocking the UI |
+| `shell.watch_file(path, fn)` | Watch a file for changes (calls `fn(content)`) |
 | `shell.quit()` | Exit the shell |
 
 ### Services
 
+Services are reactive `LuaState` values — call `:get()` to read the current
+value. Re-renders trigger automatically when the underlying data changes.
+
 ```lua
-shell.services.battery   -- { percent, charging }
-shell.services.audio     -- { volume, muted }
-shell.services.network   -- { connected, ssid, interface }
-shell.services.compositor -- { workspaces, active_workspace }
+shell.services.battery:get()    -- { percent, charging }
+shell.services.audio:get()      -- { volume, muted }
+shell.services.network:get()    -- { connected, ssid, strength }
+shell.services.compositor:get() -- { workspaces, active_workspace, active_window }
+shell.services.sysinfo:get()    -- { cpu_percent, memory_percent, memory_used_gb,
+                                --   memory_total_gb, temperature, gpu_percent }
 ```
 
 ---

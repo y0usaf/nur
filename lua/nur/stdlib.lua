@@ -71,7 +71,7 @@ end
 -- Build a horizontal bar section with left / center / right regions.
 -- Returns a single hbox element.
 function ui.bar_layout(left, center, right)
-    return ui.hbox({ children = {
+    return ui.hbox({ fill = true, children = {
         ui.hbox({ children = left  or {} }),
         ui.spacer(),
         ui.hbox({ children = center or {} }),
