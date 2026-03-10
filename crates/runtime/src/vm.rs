@@ -29,6 +29,11 @@ pub fn with_lua<R>(f: impl FnOnce(&Lua) -> R) -> R {
 }
 
 /// The Nur Lua runtime. Stored as a GPUI global to keep it alive.
+///
+/// Owns the `mlua::Lua` VM and is the single entry point for executing
+/// the user config. Also registered in a thread-local (`LUA`) so that render
+/// callbacks and timer closures can reach it via `with_lua` without carrying
+/// a reference.
 pub struct LuaRuntime {
     lua: Rc<Lua>,
 }

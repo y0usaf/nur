@@ -30,8 +30,11 @@ pub fn register(lua: &Lua, _cx: &mut App) -> LuaResult<()> {
     // shell.exec(cmd) -> string  — run a shell command and capture stdout
     shell.set("exec", lua.create_function(lua_exec)?)?;
 
-    // shell.watch_file(path, fn) — call fn when the file changes (inotify)
+    // shell.watch_file(path, fn) — call fn(content) when the file changes
     shell.set("watch_file", lua.create_function(lua_watch_file)?)?;
+
+    // shell.exec_async(cmd, fn) — run a shell command without blocking the UI
+    shell.set("exec_async", lua.create_function(lua_exec_async)?)?;
 
     // shell.quit() — gracefully stop nur
     shell.set("quit", lua.create_function(lua_quit)?)?;
@@ -137,30 +140,79 @@ fn lua_exec(_lua: &Lua, cmd: String) -> LuaResult<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn lua_watch_file(_lua: &Lua, (_path, _cb): (String, LuaFunction)) -> LuaResult<()> {
-    // TODO: inotify-based file watcher.
-    //
-    // Implementation sketch:
-    //   1. Store `cb` as a registry key.
-    //   2. cx.spawn(async move |cx| {
-    //          let mut inotify = Inotify::init()?;
-    //          inotify.add_watch(path, WatchMask::MODIFY | WatchMask::CLOSE_WRITE)?;
-    //          let mut buf = [0u8; 4096];
-    //          loop {
-    //              let events = inotify.read_events_blocking(&mut buf)?;
-    //              for _ in events {
-    //                  cx.update(|cx| {
-    //                      vm::with_lua(|lua| {
-    //                          let f = lua.registry_value::<LuaFunction>(&key).unwrap();
-    //                          let content = std::fs::read_to_string(&path).unwrap_or_default();
-    //                          context::with_cx(cx, || f.call::<()>(content).ok());
-    //                      });
-    //                  });
-    //              }
-    //          }
-    //      }).detach();
-    //
-    // This is also needed for live config reload (watching init.lua).
+fn lua_watch_file(lua: &Lua, (path, cb): (String, LuaFunction)) -> LuaResult<()> {
+    let key = lua.create_registry_value(cb)?;
+
+    context::current_cx(|cx| {
+        cx.spawn(async move |cx| {
+            let mut last_mtime = std::fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok();
+
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(500))
+                    .await;
+
+                let mtime = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok();
+
+                if mtime != last_mtime && mtime.is_some() {
+                    last_mtime = mtime;
+                    let content = std::fs::read_to_string(&path).unwrap_or_default();
+                    cx.update(|cx| {
+                        crate::vm::with_lua(|lua| {
+                            if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
+                                context::with_cx(cx, || {
+                                    if let Err(e) = f.call::<()>(content.clone()) {
+                                        tracing::error!("watch_file callback error: {e}");
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+            }
+        })
+        .detach();
+    });
+
+    Ok(())
+}
+
+fn lua_exec_async(lua: &Lua, (cmd, callback): (String, LuaFunction)) -> LuaResult<()> {
+    let key = lua.create_registry_value(callback)?;
+
+    context::current_cx(|cx| {
+        cx.spawn(async move |cx| {
+            let output = cx
+                .background_executor()
+                .spawn(async move {
+                    std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(&cmd)
+                        .output()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        .unwrap_or_default()
+                })
+                .await;
+
+            cx.update(|cx| {
+                crate::vm::with_lua(|lua| {
+                    if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
+                        context::with_cx(cx, || {
+                            if let Err(e) = f.call::<()>(output) {
+                                tracing::error!("exec_async callback error: {e}");
+                            }
+                        });
+                    }
+                });
+            });
+        })
+        .detach();
+    });
+
     Ok(())
 }
 
