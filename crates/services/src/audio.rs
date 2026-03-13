@@ -8,9 +8,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{App, AppContext, Entity};
-use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct AudioState {
     /// Master output volume, 0.0–1.0.
     pub volume: f32,
@@ -68,6 +67,25 @@ impl AudioService {
     }
 }
 
+/// Parse a `wpctl get-volume` output string into an `AudioState`.
+///
+/// Handles:
+///   `"Volume: 0.62\n"`         → volume=0.62, muted=false
+///   `"Volume: 0.62 [MUTED]\n"` → volume=0.62, muted=true
+///
+/// Returns `AudioState::default()` when the string cannot be parsed.
+pub(crate) fn parse_wpctl_output(s: &str) -> AudioState {
+    let muted = s.contains("[MUTED]");
+    // "Volume: 0.62 …" — second whitespace-separated token is the float.
+    let volume = s
+        .split_whitespace()
+        .nth(1)
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(1.0)
+        .clamp(0.0, 1.0);
+    AudioState { volume, muted }
+}
+
 /// Read default sink volume and mute state via `wpctl`.
 ///
 /// Parses `wpctl get-volume @DEFAULT_AUDIO_SINK@` output:
@@ -80,17 +98,95 @@ fn read_audio_state() -> AudioState {
 
     match output {
         Ok(o) if o.status.success() => {
-            let s = String::from_utf8_lossy(&o.stdout);
-            let muted = s.contains("[MUTED]");
-            // Second token is the float volume value.
-            let volume = s
-                .split_whitespace()
-                .nth(1)
-                .and_then(|v| v.parse::<f32>().ok())
-                .unwrap_or(1.0)
-                .clamp(0.0, 1.0);
-            AudioState { volume, muted }
+            parse_wpctl_output(&String::from_utf8_lossy(&o.stdout))
         }
         _ => AudioState::default(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_wpctl_output ---
+
+    #[test]
+    fn wpctl_unmuted_volume() {
+        let s = parse_wpctl_output("Volume: 0.62\n");
+        assert!((s.volume - 0.62).abs() < 1e-5);
+        assert!(!s.muted);
+    }
+
+    #[test]
+    fn wpctl_muted_volume() {
+        let s = parse_wpctl_output("Volume: 0.62 [MUTED]\n");
+        assert!((s.volume - 0.62).abs() < 1e-5);
+        assert!(s.muted);
+    }
+
+    #[test]
+    fn wpctl_full_volume() {
+        let s = parse_wpctl_output("Volume: 1.00\n");
+        assert!((s.volume - 1.0).abs() < 1e-5);
+        assert!(!s.muted);
+    }
+
+    #[test]
+    fn wpctl_zero_volume() {
+        let s = parse_wpctl_output("Volume: 0.00\n");
+        assert!((s.volume - 0.0).abs() < 1e-5);
+        assert!(!s.muted);
+    }
+
+    #[test]
+    fn wpctl_over_max_is_clamped_to_1() {
+        // wpctl can report >1.0 for boosted output
+        let s = parse_wpctl_output("Volume: 1.50\n");
+        assert!((s.volume - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn wpctl_empty_string_gives_default() {
+        let s = parse_wpctl_output("");
+        assert!((s.volume - 1.0).abs() < 1e-5);
+        assert!(!s.muted);
+    }
+
+    #[test]
+    fn wpctl_garbage_gives_default_volume() {
+        let s = parse_wpctl_output("some garbage output");
+        assert!((s.volume - 1.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn wpctl_muted_only_no_volume() {
+        // Volume token missing but [MUTED] present
+        let s = parse_wpctl_output("[MUTED]\n");
+        assert!(s.muted);
+        assert!((s.volume - 1.0).abs() < 1e-5); // fallback
+    }
+
+    #[test]
+    fn wpctl_muted_with_zero_volume() {
+        let s = parse_wpctl_output("Volume: 0.00 [MUTED]\n");
+        assert!(s.muted);
+        assert!((s.volume - 0.0).abs() < 1e-5);
+    }
+
+    // --- AudioState ---
+
+    #[test]
+    fn audio_state_default() {
+        let s = AudioState::default();
+        assert!((s.volume - 1.0).abs() < 1e-5);
+        assert!(!s.muted);
+    }
+
+    #[test]
+    fn audio_state_clone() {
+        let a = AudioState { volume: 0.5, muted: true };
+        let b = a.clone();
+        assert!((b.volume - 0.5).abs() < 1e-5);
+        assert!(b.muted);
     }
 }

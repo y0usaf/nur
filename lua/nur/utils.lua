@@ -3,15 +3,17 @@
 local M = {}
 
 -- Round a number to `digits` decimal places.
+-- Returns an integer when the result has no fractional part (e.g. 1.0 → 1).
 function M.round(n, digits)
     local factor = 10 ^ (digits or 0)
-    return math.floor(n * factor + 0.5) / factor
+    local result = math.floor(n * factor + 0.5) / factor
+    return math.tointeger(result) or result
 end
 
 -- Format bytes into a human-readable string (KB / MB / GB).
 function M.fmt_bytes(bytes)
     if bytes < 1024 then
-        return bytes .. " B"
+        return math.floor(bytes) .. " B"
     elseif bytes < 1024 * 1024 then
         return M.round(bytes / 1024, 1) .. " KB"
     elseif bytes < 1024 * 1024 * 1024 then

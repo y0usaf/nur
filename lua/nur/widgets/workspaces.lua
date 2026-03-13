@@ -16,7 +16,6 @@ function M.new(opts)
 
     function self:render()
         local comp = shell.services.compositor:get()
-        local active = comp.active_workspace
         local items = {}
         for _, ws in ipairs(comp.workspaces or {}) do
             items[#items + 1] = ui.text({

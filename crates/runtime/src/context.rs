@@ -55,7 +55,7 @@ pub fn current_cx<R>(f: impl FnOnce(&mut App) -> R) -> R {
     })
 }
 
-pub fn has_cx() -> bool {
+pub(crate) fn has_cx() -> bool {
     APP_PTR.with(|cell| !cell.get().is_null())
 }
 

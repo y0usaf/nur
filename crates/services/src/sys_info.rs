@@ -89,16 +89,22 @@ impl SysInfoService {
     }
 }
 
+/// Compute memory usage percentage from raw byte counts.
+/// Returns 0 when `total` is zero to avoid division by zero.
+pub(crate) fn compute_memory_percent(used: f64, total: f64) -> u32 {
+    if total > 0.0 {
+        ((used / total) * 100.0) as u32
+    } else {
+        0
+    }
+}
+
 fn compute_state(system: &System, components: &Components) -> SysInfoState {
     let cpu_percent = system.global_cpu_usage().round() as u32;
 
     let total = system.total_memory() as f64;
     let used = system.used_memory() as f64;
-    let memory_percent = if total > 0.0 {
-        ((used / total) * 100.0) as u32
-    } else {
-        0
-    };
+    let memory_percent = compute_memory_percent(used, total);
     let memory_total_gb = total / 1_073_741_824.0;
     let memory_used_gb = used / 1_073_741_824.0;
 
@@ -138,4 +144,73 @@ fn read_gpu_percent() -> Option<u32> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- compute_memory_percent ---
+
+    #[test]
+    fn memory_percent_half() {
+        assert_eq!(compute_memory_percent(512.0, 1024.0), 50);
+    }
+
+    #[test]
+    fn memory_percent_full() {
+        assert_eq!(compute_memory_percent(1024.0, 1024.0), 100);
+    }
+
+    #[test]
+    fn memory_percent_zero_used() {
+        assert_eq!(compute_memory_percent(0.0, 1024.0), 0);
+    }
+
+    #[test]
+    fn memory_percent_zero_total_returns_zero() {
+        // Must not divide by zero
+        assert_eq!(compute_memory_percent(0.0, 0.0), 0);
+    }
+
+    #[test]
+    fn memory_percent_rounds_down() {
+        // 333 / 1000 = 33.3% → truncates to 33
+        assert_eq!(compute_memory_percent(333.0, 1000.0), 33);
+    }
+
+    #[test]
+    fn memory_percent_realistic_8gb() {
+        // 3 GiB used out of 8 GiB = 37%
+        let used = 3.0 * 1_073_741_824.0;
+        let total = 8.0 * 1_073_741_824.0;
+        assert_eq!(compute_memory_percent(used, total), 37);
+    }
+
+    // --- SysInfoState ---
+
+    #[test]
+    fn sysinfo_state_default() {
+        let s = SysInfoState::default();
+        assert_eq!(s.cpu_percent, 0);
+        assert_eq!(s.memory_percent, 0);
+        assert_eq!(s.temperature, None);
+        assert_eq!(s.gpu_percent, None);
+    }
+
+    #[test]
+    fn sysinfo_state_clone() {
+        let a = SysInfoState {
+            cpu_percent: 42,
+            memory_percent: 70,
+            memory_used_gb: 5.5,
+            memory_total_gb: 16.0,
+            temperature: Some(65),
+            gpu_percent: Some(30),
+        };
+        let b = a.clone();
+        assert_eq!(b.cpu_percent, 42);
+        assert_eq!(b.temperature, Some(65));
+        assert_eq!(b.gpu_percent, Some(30));
+    }
 }

@@ -1,4 +1,4 @@
-//! The Lumen Lua runtime crate.
+//! The nur Lua runtime crate.
 //!
 //! This crate owns everything related to Lua: the VM lifecycle, the full
 //! Lua API surface (`shell.*`, `ui.*`, `shell.services.*`), and the bridge
@@ -12,7 +12,7 @@
 //!   context.rs     — Thread-local &mut App pointer; reactive view notifiers
 //!   api/           — Lua global registration (shell.*, ui.*, shell.services.*)
 //!   bridge/        — Types that cross the Lua↔GPUI boundary
-//!     element.rs   — LuaElement: Lua table → GPUI AnyElement
+//!     element.rs   — lua_table_to_any_element: Lua table → GPUI AnyElement
 //!     state.rs     — LuaState: reactive value with notifier chain
 //!     window.rs    — LuaView (Render impl) + LuaWindowHandle userdata
 //! ```
@@ -42,3 +42,7 @@ pub use vm::LuaRuntime;
 // Implement the GPUI Global marker so main.rs can call cx.set_global(runtime),
 // keeping the LuaRuntime (and therefore the Lua VM) alive for the process lifetime.
 impl gpui::Global for LuaRuntime {}
+
+#[cfg(test)]
+mod lua_tests;
+

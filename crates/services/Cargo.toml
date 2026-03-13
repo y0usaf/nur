@@ -6,16 +6,11 @@ edition = "2024"
 [dependencies]
 gpui.workspace = true
 
-anyhow       = { workspace = true }
-tracing      = { workspace = true }
-tokio        = { workspace = true }
-futures-util = { workspace = true }
-zbus         = { workspace = true }
-serde        = { workspace = true }
-serde_json   = { workspace = true }
-chrono       = { workspace = true }
-hyprland     = { workspace = true }
-niri-ipc     = { workspace = true }
+anyhow     = { workspace = true }
+tracing    = { workspace = true }
+zbus       = { workspace = true }
+serde_json = { workspace = true }
+hyprland   = { workspace = true }
+niri-ipc   = { workspace = true }
 
-sysinfo              = "0.35"
-libpulse-binding     = "2"
+sysinfo = "0.35"
