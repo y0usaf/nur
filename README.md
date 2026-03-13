@@ -1,15 +1,22 @@
-# nur
+<div align="center">
 
-A GPU-accelerated, Lua-scriptable Wayland desktop shell.
+# nur — نور
+
+*A GPU-accelerated, Lua-scriptable Wayland desktop shell.*
 
 Write `~/.config/nur/init.lua` to define bars, overlays, and widgets.
 Rust handles rendering, window management, and system service integration via
-[GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (Zed's UI
-framework) and Vulkan/Blade.
+[GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (Zed's UI framework) and Vulkan/Blade.
+
+</div>
 
 ---
 
+<div align="center">
+
 ## Features
+
+</div>
 
 - **Lua 5.4 config** — hot-reloadable shell definition with a simple reactive API
 - **GPU-accelerated rendering** — GPUI + Blade (Vulkan) for every frame
@@ -20,7 +27,11 @@ framework) and Vulkan/Blade.
 
 ---
 
+<div align="center">
+
 ## Quick start
+
+</div>
 
 ```bash
 # Enter the dev shell (sets up Wayland/Vulkan library paths)
@@ -38,7 +49,11 @@ cp examples/simple-bar/init.lua ~/.config/nur/init.lua
 
 ---
 
+<div align="center">
+
 ## Example config
+
+</div>
 
 ```lua
 local W = require("nur.widgets.clock")
@@ -62,7 +77,11 @@ end)
 
 ---
 
+<div align="center">
+
 ## Configuration
+
+</div>
 
 Config is loaded from (in order):
 
@@ -72,7 +91,11 @@ Config is loaded from (in order):
 
 ---
 
+<div align="center">
+
 ## Lua API
+
+</div>
 
 | Function | Description |
 |---|---|
@@ -101,7 +124,11 @@ shell.services.sysinfo:get()    -- { cpu_percent, memory_percent, memory_used_gb
 
 ---
 
+<div align="center">
+
 ## Architecture
+
+</div>
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full technical picture.
 
@@ -121,7 +148,11 @@ wlr-layer-shell     -- Wayland protocol for docked windows
 
 ---
 
+<div align="center">
+
 ## Project layout
+
+</div>
 
 ```
 crates/nur/         -- binary entry point
@@ -135,7 +166,11 @@ nix/                -- NixOS/home-manager module
 
 ---
 
+<div align="center">
+
 ## NixOS / home-manager
+
+</div>
 
 ```nix
 {
@@ -148,6 +183,10 @@ nix/                -- NixOS/home-manager module
 
 ---
 
+<div align="center">
+
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE)
+
+</div>
