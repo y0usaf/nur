@@ -86,6 +86,40 @@ pub(crate) fn parse_wpctl_output(s: &str) -> AudioState {
     AudioState { volume, muted }
 }
 
+/// Format a volume float as a wpctl-compatible argument string, clamped to 0.0..=1.0.
+pub(crate) fn format_volume_arg(volume: f32) -> String {
+    format!("{:.2}", volume.clamp(0.0, 1.0))
+}
+
+/// Set the default sink volume via `wpctl`. Fire-and-forget.
+pub fn set_volume(volume: f32) {
+    let arg = format_volume_arg(volume);
+    std::thread::spawn(move || {
+        match std::process::Command::new("wpctl")
+            .args(["set-volume", "@DEFAULT_AUDIO_SINK@", &arg])
+            .status()
+        {
+            Ok(s) if !s.success() => tracing::warn!("wpctl set-volume exited {s}"),
+            Err(e) => tracing::warn!("wpctl set-volume failed: {e}"),
+            _ => {}
+        }
+    });
+}
+
+/// Toggle mute on the default sink via `wpctl`. Fire-and-forget.
+pub fn toggle_mute() {
+    std::thread::spawn(|| {
+        match std::process::Command::new("wpctl")
+            .args(["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+            .status()
+        {
+            Ok(s) if !s.success() => tracing::warn!("wpctl set-mute toggle exited {s}"),
+            Err(e) => tracing::warn!("wpctl set-mute toggle failed: {e}"),
+            _ => {}
+        }
+    });
+}
+
 /// Read default sink volume and mute state via `wpctl`.
 ///
 /// Parses `wpctl get-volume @DEFAULT_AUDIO_SINK@` output:
@@ -188,5 +222,45 @@ mod tests {
         let b = a.clone();
         assert!((b.volume - 0.5).abs() < 1e-5);
         assert!(b.muted);
+    }
+
+    // --- format_volume_arg ---
+
+    #[test]
+    fn format_volume_arg_normal() {
+        assert_eq!(format_volume_arg(0.5), "0.50");
+    }
+
+    #[test]
+    fn format_volume_arg_clamps_high() {
+        assert_eq!(format_volume_arg(1.5), "1.00");
+    }
+
+    #[test]
+    fn format_volume_arg_clamps_low() {
+        assert_eq!(format_volume_arg(-0.3), "0.00");
+    }
+
+    #[test]
+    fn format_volume_arg_zero() {
+        assert_eq!(format_volume_arg(0.0), "0.00");
+    }
+
+    #[test]
+    fn format_volume_arg_one() {
+        assert_eq!(format_volume_arg(1.0), "1.00");
+    }
+
+    // --- set_volume / toggle_mute graceful failure ---
+
+    #[test]
+    fn set_volume_does_not_panic_when_wpctl_missing() {
+        // If wpctl is not on PATH this should log a warning, not panic.
+        set_volume(0.5);
+    }
+
+    #[test]
+    fn toggle_mute_does_not_panic_when_wpctl_missing() {
+        toggle_mute();
     }
 }
