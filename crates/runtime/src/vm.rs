@@ -83,11 +83,9 @@ impl LuaRuntime {
             .get::<LuaTable>("package")?
             .get("preload")?;
 
-        for (module_name, source) in assets::LUA_MODULES {
-            let source: &'static str = source;
-            let name: &'static str = module_name;
+        for &(name, source) in assets::LUA_MODULES {
             preload.set(
-                *module_name,
+                name,
                 self.lua.create_function(move |lua, ()| {
                     lua.load(source).set_name(name).eval::<LuaValue>()
                 })?,
@@ -98,8 +96,3 @@ impl LuaRuntime {
     }
 }
 
-impl Default for LuaRuntime {
-    fn default() -> Self {
-        Self::new()
-    }
-}

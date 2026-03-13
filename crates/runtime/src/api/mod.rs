@@ -1,4 +1,4 @@
-//! Lua global registration — the public API surface of Lumen.
+//! Lua global registration — the public API surface of nur.
 //!
 //! Each sub-module owns one top-level Lua global:
 //!

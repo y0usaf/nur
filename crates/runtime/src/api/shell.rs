@@ -47,6 +47,25 @@ pub fn register(lua: &Lua, _cx: &mut App) -> LuaResult<()> {
 // Implementations
 // ---------------------------------------------------------------------------
 
+/// Retrieve a Lua function from the registry and call it with `arg`.
+/// Must be called from inside `cx.update(|cx| ...)` so a GPUI context is active.
+fn call_lua_key<A: mlua::IntoLuaMulti>(
+    cx: &mut App,
+    key: &LuaRegistryKey,
+    arg: A,
+    label: &'static str,
+) {
+    crate::vm::with_lua(|lua| {
+        if let Ok(f) = lua.registry_value::<LuaFunction>(key) {
+            context::with_cx(cx, || {
+                if let Err(e) = f.call::<()>(arg) {
+                    tracing::error!("{label} callback error: {e}");
+                }
+            });
+        }
+    });
+}
+
 fn lua_window(_lua: &Lua, config: LuaTable) -> LuaResult<LuaWindowHandle> {
     let position = BarPosition::from_str(
         &config.get::<String>("position").unwrap_or_else(|_| "top".into()),
@@ -85,17 +104,7 @@ fn lua_interval(lua: &Lua, (ms, callback): (u64, LuaFunction)) -> LuaResult<()> 
                 .timer(Duration::from_millis(ms))
                 .await;
 
-            cx.update(|cx| {
-                crate::vm::with_lua(|lua| {
-                    if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
-                        context::with_cx(cx, || {
-                            if let Err(e) = f.call::<()>(()) {
-                                tracing::error!("interval callback error: {e}");
-                            }
-                        });
-                    }
-                });
-            });
+            cx.update(|cx| call_lua_key(cx, &key, (), "interval"));
         })
         .detach();
     });
@@ -112,17 +121,7 @@ fn lua_once(lua: &Lua, (ms, callback): (u64, LuaFunction)) -> LuaResult<()> {
                 .timer(Duration::from_millis(ms))
                 .await;
 
-            cx.update(|cx| {
-                crate::vm::with_lua(|lua| {
-                    if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
-                        context::with_cx(cx, || {
-                            if let Err(e) = f.call::<()>(()) {
-                                tracing::error!("once callback error: {e}");
-                            }
-                        });
-                    }
-                });
-            });
+            cx.update(|cx| call_lua_key(cx, &key, (), "once"));
         })
         .detach();
     });
@@ -161,17 +160,7 @@ fn lua_watch_file(lua: &Lua, (path, cb): (String, LuaFunction)) -> LuaResult<()>
                 if mtime != last_mtime && mtime.is_some() {
                     last_mtime = mtime;
                     let content = std::fs::read_to_string(&path).unwrap_or_default();
-                    cx.update(|cx| {
-                        crate::vm::with_lua(|lua| {
-                            if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
-                                context::with_cx(cx, || {
-                                    if let Err(e) = f.call::<()>(content.clone()) {
-                                        tracing::error!("watch_file callback error: {e}");
-                                    }
-                                });
-                            }
-                        });
-                    });
+                    cx.update(|cx| call_lua_key(cx, &key, content, "watch_file"));
                 }
             }
         })
@@ -198,17 +187,7 @@ fn lua_exec_async(lua: &Lua, (cmd, callback): (String, LuaFunction)) -> LuaResul
                 })
                 .await;
 
-            cx.update(|cx| {
-                crate::vm::with_lua(|lua| {
-                    if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
-                        context::with_cx(cx, || {
-                            if let Err(e) = f.call::<()>(output) {
-                                tracing::error!("exec_async callback error: {e}");
-                            }
-                        });
-                    }
-                });
-            });
+            cx.update(|cx| call_lua_key(cx, &key, output, "exec_async"));
         })
         .detach();
     });
@@ -225,4 +204,65 @@ fn parse_color(s: String, default: u32) -> u32 {
 fn lua_quit(_lua: &Lua, (): ()) -> LuaResult<()> {
     context::current_cx(|cx| cx.quit());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- parse_color ---
+
+    #[test]
+    fn parse_color_with_hash_prefix() {
+        assert_eq!(parse_color("#1e1e2e".into(), 0), 0x1e1e2e);
+    }
+
+    #[test]
+    fn parse_color_without_hash_prefix() {
+        assert_eq!(parse_color("1e1e2e".into(), 0), 0x1e1e2e);
+    }
+
+    #[test]
+    fn parse_color_all_zeros() {
+        assert_eq!(parse_color("#000000".into(), 0xff), 0x000000);
+    }
+
+    #[test]
+    fn parse_color_all_f() {
+        assert_eq!(parse_color("ffffff".into(), 0), 0xffffff);
+    }
+
+    #[test]
+    fn parse_color_mixed_case() {
+        // hex is case-insensitive
+        assert_eq!(parse_color("AABBCC".into(), 0), 0xaabbcc);
+    }
+
+    #[test]
+    fn parse_color_empty_string_returns_default() {
+        assert_eq!(parse_color("".into(), 0xdeadbe), 0xdeadbe);
+    }
+
+    #[test]
+    fn parse_color_invalid_string_returns_default() {
+        assert_eq!(parse_color("not-a-color".into(), 0xff0000), 0xff0000);
+    }
+
+    #[test]
+    fn parse_color_catppuccin_mocha_base() {
+        // Actual default colours used in WindowConfig::default
+        assert_eq!(parse_color("#1e1e2e".into(), 0), 0x1e1e2e);
+        assert_eq!(parse_color("#cdd6f4".into(), 0), 0xcdd6f4);
+    }
+
+    #[test]
+    fn parse_color_hash_only_returns_default() {
+        assert_eq!(parse_color("#".into(), 0x123456), 0x123456);
+    }
+
+    #[test]
+    fn parse_color_whitespace_returns_default() {
+        // Leading/trailing spaces are not stripped — should fall back
+        assert_eq!(parse_color("  ffffff  ".into(), 0xabcdef), 0xabcdef);
+    }
 }

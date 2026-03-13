@@ -16,7 +16,7 @@ use mlua::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::bridge::element::LuaElement;
+use crate::bridge::element::lua_table_to_any_element;
 
 // ---------------------------------------------------------------------------
 // LuaView — the GPUI view whose content is defined by a Lua function
@@ -36,18 +36,12 @@ pub struct LuaView {
 }
 
 impl LuaView {
-    fn new(_cx: &mut Context<Self>) -> Self {
-        Self { render_key: None, bg: 0x1e1e2e, fg: 0xcdd6f4, font_size: 13.0 }
+    fn new(bg: u32, fg: u32, font_size: f32, _cx: &mut Context<Self>) -> Self {
+        Self { render_key: None, bg, fg, font_size }
     }
 
     pub fn set_render_fn(&mut self, key: LuaRegistryKey) {
         self.render_key = Some(key);
-    }
-
-    pub fn set_theme(&mut self, bg: u32, fg: u32, font_size: f32) {
-        self.bg = bg;
-        self.fg = fg;
-        self.font_size = font_size;
     }
 }
 
@@ -64,8 +58,7 @@ impl Render for LuaView {
         let content = crate::vm::with_lua(|lua| -> AnyElement {
             (|| -> LuaResult<AnyElement> {
                 let f: LuaFunction = lua.registry_value(key)?;
-                let table: LuaTable = f.call(())?;
-                Ok(LuaElement::from_lua_table(table)?.into_any_element())
+                lua_table_to_any_element(f.call(())?)
             })()
             .unwrap_or_else(|e| {
                 tracing::error!("Lua render error: {e}");
@@ -96,12 +89,6 @@ impl Render for LuaView {
 #[derive(Clone)]
 pub struct LuaWindowHandle {
     entity: WeakEntity<LuaView>,
-}
-
-impl LuaWindowHandle {
-    fn new(entity: WeakEntity<LuaView>) -> Self {
-        Self { entity }
-    }
 }
 
 impl LuaUserData for LuaWindowHandle {
@@ -146,10 +133,6 @@ impl BarPosition {
             _        => Self::Top,
         }
     }
-
-    fn is_vertical(self) -> bool {
-        matches!(self, Self::Left | Self::Right)
-    }
 }
 
 /// Configuration for a layer-shell window, parsed from the Lua `shell.window({})` call.
@@ -176,6 +159,84 @@ impl Default for WindowConfig {
             fg:        0xcdd6f4,
             font_size: 13.0,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- BarPosition::from_str ---
+
+    #[test]
+    fn bar_position_top() {
+        assert!(matches!(BarPosition::from_str("top"), BarPosition::Top));
+    }
+
+    #[test]
+    fn bar_position_bottom() {
+        assert!(matches!(BarPosition::from_str("bottom"), BarPosition::Bottom));
+    }
+
+    #[test]
+    fn bar_position_left() {
+        assert!(matches!(BarPosition::from_str("left"), BarPosition::Left));
+    }
+
+    #[test]
+    fn bar_position_right() {
+        assert!(matches!(BarPosition::from_str("right"), BarPosition::Right));
+    }
+
+    #[test]
+    fn bar_position_unknown_defaults_to_top() {
+        assert!(matches!(BarPosition::from_str("center"), BarPosition::Top));
+    }
+
+    #[test]
+    fn bar_position_empty_defaults_to_top() {
+        assert!(matches!(BarPosition::from_str(""), BarPosition::Top));
+    }
+
+    #[test]
+    fn bar_position_case_sensitive_uppercase_defaults_to_top() {
+        assert!(matches!(BarPosition::from_str("TOP"), BarPosition::Top));
+        assert!(matches!(BarPosition::from_str("Bottom"), BarPosition::Top));
+    }
+
+    // --- WindowConfig::default ---
+
+    #[test]
+    fn window_config_default_position_is_top() {
+        let c = WindowConfig::default();
+        assert!(matches!(c.position, BarPosition::Top));
+    }
+
+    #[test]
+    fn window_config_default_size() {
+        let c = WindowConfig::default();
+        assert!((c.size - 32.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn window_config_default_exclusive() {
+        assert!(WindowConfig::default().exclusive);
+    }
+
+    #[test]
+    fn window_config_default_bg_color() {
+        assert_eq!(WindowConfig::default().bg, 0x1e1e2e);
+    }
+
+    #[test]
+    fn window_config_default_fg_color() {
+        assert_eq!(WindowConfig::default().fg, 0xcdd6f4);
+    }
+
+    #[test]
+    fn window_config_default_font_size() {
+        let c = WindowConfig::default();
+        assert!((c.font_size - 13.0).abs() < f32::EPSILON);
     }
 }
 
@@ -233,11 +294,7 @@ pub fn open_shell_window(config: WindowConfig, cx: &mut App) -> Result<LuaWindow
 
     let (cfg_bg, cfg_fg, cfg_fs) = (config.bg, config.fg, config.font_size);
     cx.open_window(options, move |_, cx| {
-        let entity = cx.new(|cx| {
-            let mut view = LuaView::new(cx);
-            view.set_theme(cfg_bg, cfg_fg, cfg_fs);
-            view
-        });
+        let entity = cx.new(|cx| LuaView::new(cfg_bg, cfg_fg, cfg_fs, cx));
         *cap2.borrow_mut() = Some(entity.downgrade());
         entity
     })
@@ -256,5 +313,5 @@ pub fn open_shell_window(config: WindowConfig, cx: &mut App) -> Result<LuaWindow
         }
     });
 
-    Ok(LuaWindowHandle::new(weak))
+    Ok(LuaWindowHandle { entity: weak })
 }
