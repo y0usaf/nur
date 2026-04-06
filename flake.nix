@@ -5,59 +5,80 @@
     nixpkgs.url      = "github:NixOS/nixpkgs/nixos-unstable";
     rust-overlay     = { url = "github:oxalica/rust-overlay"; inputs.nixpkgs.follows = "nixpkgs"; };
     crane            = { url = "github:ipetkov/crane"; };
-    flake-utils.url  = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, rust-overlay, crane, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = import nixpkgs {
-          inherit system;
-          overlays = [ rust-overlay.overlays.default ];
-        };
+  outputs = { self, nixpkgs, rust-overlay, crane }:
+    let
+      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forAllSystems = nixpkgs.lib.genAttrs systems;
 
-        toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
-        craneLib  = (crane.mkLib pkgs).overrideToolchain toolchain;
+      mkPkgs = system: import nixpkgs {
+        inherit system;
+        overlays = [ rust-overlay.overlays.default ];
+      };
 
-        src = craneLib.cleanCargoSource ./.;
+      mkNur = system:
+        let
+          pkgs        = mkPkgs system;
+          toolchain   = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          craneLib    = (crane.mkLib pkgs).overrideToolchain toolchain;
 
-        nativeBuildInputs = with pkgs; [ pkg-config ];
-        buildInputs = with pkgs; [
-          wayland
-          libxkbcommon
-          vulkan-loader
-          vulkan-headers
-          fontconfig
-          freetype
-          openssl
-          pipewire
-          libxcb
-          libx11
-          libxcursor
-          libxi
-          libxkbcommon
-        ];
+          src = craneLib.cleanCargoSource ./.;
 
-        commonArgs = {
-          inherit src nativeBuildInputs buildInputs;
-          # mlua vendored build needs cc
-          LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
-        };
+          nativeBuildInputs = with pkgs; [ pkg-config ];
+          buildInputs = with pkgs; [
+            wayland
+            libxkbcommon
+            vulkan-loader
+            vulkan-headers
+            fontconfig
+            freetype
+            openssl
+            pipewire
+            libxcb
+            libx11
+            libxcursor
+            libxi
+            libxkbcommon
+          ];
 
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          commonArgs = {
+            inherit src nativeBuildInputs buildInputs;
+            LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
+          };
 
-        nur = craneLib.buildPackage (commonArgs // {
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        in craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           postInstall = ''
             mkdir -p $out/share/nur
             cp -r lua $out/share/nur/
           '';
         });
-      in {
-        packages.default = nur;
-        packages.nur      = nur;
 
-        devShells.default = craneLib.devShell {
+      mkDevShell = system:
+        let
+          pkgs        = mkPkgs system;
+          toolchain   = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          craneLib    = (crane.mkLib pkgs).overrideToolchain toolchain;
+
+          nativeBuildInputs = with pkgs; [ pkg-config ];
+          buildInputs = with pkgs; [
+            wayland
+            libxkbcommon
+            vulkan-loader
+            vulkan-headers
+            fontconfig
+            freetype
+            openssl
+            pipewire
+            libxcb
+            libx11
+            libxcursor
+            libxi
+            libxkbcommon
+          ];
+        in craneLib.devShell {
           packages = buildInputs ++ nativeBuildInputs ++ (with pkgs; [
             rust-analyzer
             cargo-watch
@@ -66,14 +87,18 @@
           ]);
           LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
         };
-      }
-    ) // {
-      # Home-manager module, available as:
-      #   inputs.nur.homeManagerModules.default
+    in {
+      packages = forAllSystems (system: {
+        default = mkNur system;
+        nur     = mkNur system;
+      });
+
+      devShells = forAllSystems (system: {
+        default = mkDevShell system;
+      });
+
       homeManagerModules.default = import ./nix/module.nix;
 
-      # Nix helper functions for generating Lua configs:
-      #   inputs.nur.lib.mkBar { ... }
       lib = import ./nix/lib.nix { inherit (nixpkgs) lib; };
     };
 }
