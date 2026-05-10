@@ -71,7 +71,8 @@
             mkdir -p $out/share/nur
             cp -r lua $out/share/nur/
             wrapProgram $out/bin/nur \
-              --prefix PATH : ${runtimePath}
+              --prefix PATH : ${runtimePath} \
+              --prefix LD_LIBRARY_PATH : ${pkgs.lib.makeLibraryPath buildInputs}
           '';
 
           meta = with pkgs.lib; {
