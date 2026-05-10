@@ -1,0 +1,173 @@
+-- nur.widgets.system_tray
+-- AGS-like StatusNotifierItem tray renderer.
+
+local theme = require("nur.theme")
+
+local M = {}
+local icon_cache = {}
+
+local function shquote(s)
+    s = tostring(s or "")
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+local function add_unique(list, seen, value)
+    if value and value ~= "" and not seen[value] then
+        seen[value] = true
+        list[#list + 1] = value
+    end
+end
+
+local function icon_dirs()
+    local dirs, seen = {}, {}
+    local home = os.getenv("HOME") or ""
+    local xdg_data_home = os.getenv("XDG_DATA_HOME") or (home .. "/.local/share")
+
+    add_unique(dirs, seen, xdg_data_home .. "/icons")
+    add_unique(dirs, seen, home .. "/.local/share/icons")
+    add_unique(dirs, seen, home .. "/.icons")
+
+    local data_dirs = os.getenv("XDG_DATA_DIRS") or "/usr/local/share:/usr/share"
+    for dir in data_dirs:gmatch("[^:]+") do
+        add_unique(dirs, seen, dir .. "/icons")
+    end
+
+    add_unique(dirs, seen, "/run/current-system/sw/share/icons")
+    add_unique(dirs, seen, "/usr/local/share/icons")
+    add_unique(dirs, seen, "/usr/share/icons")
+    add_unique(dirs, seen, "/usr/share/pixmaps")
+
+    return dirs
+end
+
+local function file_exists(path)
+    if not path or path == "" then return false end
+    return shell.exec("test -f " .. shquote(path) .. " && printf yes || true") == "yes"
+end
+
+function M.resolve_icon_path(name)
+    name = tostring(name or "")
+    if name == "" then return nil end
+
+    if icon_cache[name] ~= nil then
+        return icon_cache[name] ~= false and icon_cache[name] or nil
+    end
+
+    if name:sub(1, 1) == "/" and file_exists(name) then
+        icon_cache[name] = name
+        return name
+    end
+
+    local base = name:gsub("%.[%w]+$", "")
+    local patterns = {
+        name,
+        base,
+        base .. ".svg",
+        base .. ".png",
+        base .. ".xpm",
+    }
+
+    local clauses = {}
+    local seen = {}
+    for _, pattern in ipairs(patterns) do
+        if pattern ~= "" and not seen[pattern] then
+            seen[pattern] = true
+            clauses[#clauses + 1] = "-name " .. shquote(pattern)
+        end
+    end
+
+    local find_predicate = "\\( " .. table.concat(clauses, " -o ") .. " \\)"
+    local commands = {}
+    for _, dir in ipairs(icon_dirs()) do
+        commands[#commands + 1] = "if [ -d " .. shquote(dir) .. " ]; then find " .. shquote(dir) .. " -type f " .. find_predicate .. " -print 2>/dev/null; fi"
+    end
+
+    -- Use the first matching themed icon. Cache results so the shell search
+    -- only happens once per icon name.
+    local cmd = "{ " .. table.concat(commands, "; ") .. "; } | head -n 1"
+
+    local path = shell.exec(cmd)
+    if path == "" then
+        icon_cache[name] = false
+        return nil
+    end
+
+    icon_cache[name] = path
+    return path
+end
+
+local function fallback_label(item, opts)
+    local text = item.title or item.tooltip or item.icon_name or "•"
+    if text == "" then text = "•" end
+    return ui.text({
+        content = text:sub(1, 1),
+        color = opts.fg or theme.text,
+        size = opts.icon_size or 16,
+        weight = "bold",
+        font_family = opts.font_family or "monospace",
+    })
+end
+
+function M.icon(item, opts)
+    opts = opts or {}
+    local size = opts.icon_size or 16
+    local name = item.icon_name or ""
+    local path = M.resolve_icon_path(name)
+
+    if path then
+        return ui.image({ src = path, width = size, height = size })
+    end
+
+    if name ~= "" then
+        return ui.icon({ name = name, size = size })
+    end
+
+    return fallback_label(item, opts)
+end
+
+function M.item(item, opts)
+    opts = opts or {}
+    local size = opts.icon_size or 16
+    local pad = opts.item_padding or 2.1
+
+    return ui.button({
+        padding = pad,
+        min_width = size,
+        min_height = size,
+        hover_bg = opts.hover_bg or theme.surface1,
+        border_radius = opts.item_border_radius or 0,
+        on_click = function()
+            shell.services.systemtray:activate(item.id, opts.click_x or 0, opts.click_y or 0)
+        end,
+        children = { M.icon(item, opts) },
+    })
+end
+
+function M.new(opts)
+    opts = opts or {}
+    local self = {}
+
+    function self:render()
+        local tray = shell.services.systemtray:get()
+        local children = {}
+        local seen = {}
+
+        for _, item in ipairs(tray.items or {}) do
+            local key = ((item.icon_name or "") .. "|" .. (item.title or ""))
+            if key == "|" then key = item.id end
+            if not seen[key] and (opts.show_passive or item.status ~= "Passive") then
+                seen[key] = true
+                children[#children + 1] = M.item(item, opts)
+            end
+        end
+
+        return ui.hbox({
+            gap = opts.gap or 2,
+            children = children,
+        })
+    end
+
+    return self
+end
+
+return M
