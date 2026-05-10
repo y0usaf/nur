@@ -9,7 +9,7 @@
 
   outputs = { self, nixpkgs, rust-overlay, crane }:
     let
-      systems = [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      systems = [ "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
       mkPkgs = system: import nixpkgs {
@@ -23,9 +23,15 @@
           toolchain   = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
           craneLib    = (crane.mkLib pkgs).overrideToolchain toolchain;
 
-          src = craneLib.cleanCargoSource ./.;
+          src = pkgs.lib.cleanSourceWith {
+            src = ./.;
+            filter = path: type:
+              (craneLib.filterCargoSources path type)
+              || pkgs.lib.hasInfix "/lua/" path
+              || pkgs.lib.hasSuffix "/lua" path;
+          };
 
-          nativeBuildInputs = with pkgs; [ pkg-config ];
+          nativeBuildInputs = with pkgs; [ pkg-config makeWrapper ];
           buildInputs = with pkgs; [
             wayland
             libxkbcommon
@@ -39,12 +45,23 @@
             libx11
             libxcursor
             libxi
-            libxkbcommon
           ];
 
+          runtimePath = pkgs.lib.makeBinPath (with pkgs; [
+            bash
+            bluez
+            networkmanager
+            playerctl
+            power-profiles-daemon
+            wireplumber
+          ]);
+
           commonArgs = {
+            pname = "nur";
+            version = "0.1.0";
             inherit src nativeBuildInputs buildInputs;
             LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
+            cargoExtraArgs = "-p nur";
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -53,7 +70,17 @@
           postInstall = ''
             mkdir -p $out/share/nur
             cp -r lua $out/share/nur/
+            wrapProgram $out/bin/nur \
+              --prefix PATH : ${runtimePath}
           '';
+
+          meta = with pkgs.lib; {
+            description = "GPU-accelerated Lua-scriptable Wayland desktop shell";
+            homepage = "https://github.com/y0usaf/nur";
+            license = licenses.agpl3Only;
+            mainProgram = "nur";
+            platforms = platforms.linux;
+          };
         });
 
       mkDevShell = system:
@@ -93,11 +120,26 @@
         nur     = mkNur system;
       });
 
+      apps = forAllSystems (system: {
+        default = {
+          type = "app";
+          program = "${self.packages.${system}.nur}/bin/nur";
+        };
+        nur = self.apps.${system}.default;
+      });
+
+      overlays.default = final: prev: {
+        nur = self.packages.${prev.stdenv.hostPlatform.system}.nur;
+      };
+
       devShells = forAllSystems (system: {
         default = mkDevShell system;
       });
 
-      homeManagerModules.default = import ./nix/module.nix;
+      homeManagerModules.default = { pkgs, ... }@args:
+        import ./nix/module.nix (args // {
+          nurPackage = self.packages.${pkgs.stdenv.hostPlatform.system}.nur;
+        });
 
       lib = import ./nix/lib.nix { inherit (nixpkgs) lib; };
     };

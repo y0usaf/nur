@@ -1,7 +1,7 @@
-# Lumen Architecture
+# nur Architecture
 
-Lumen is a GPU-accelerated, Lua-scriptable Wayland desktop shell built on GPUI
-(Zed's UI framework). Users write `~/.config/lumen/init.lua`; Rust executes it,
+nur is a GPU-accelerated, Lua-scriptable Wayland desktop shell built on GPUI
+(Zed's UI framework). Users write `~/.config/nur/init.lua`; Rust executes it,
 creates Wayland layer-shell windows, and renders whatever the Lua script
 describes using GPUI's GPU-accelerated element pipeline.
 
@@ -10,7 +10,7 @@ describes using GPUI's GPU-accelerated element pipeline.
 ## Stack
 
 ```
-~/.config/lumen/init.lua   — user configuration (Lua 5.4)
+~/.config/nur/init.lua     — user configuration (Lua 5.4)
          ↓
 crates/runtime             — Lua VM lifecycle, all Lua↔Rust bridging
          ↓
@@ -29,7 +29,7 @@ wlr-layer-shell (in GPUI)  — Wayland protocol for docking windows to screen ed
 
 | Crate | Role |
 |---|---|
-| `crates/lumen` | Binary entry point. Finds config, boots GPUI, hands off to runtime. |
+| `crates/nur` | Binary entry point. Finds config, boots GPUI, hands off to runtime. |
 | `crates/runtime` | Everything Lua-related: VM lifecycle, the Lua API surface, the Lua↔GPUI bridge. |
 | `crates/services` | System integrations. No Lua dependency. Exposes GPUI `Entity<T>` objects. |
 | `crates/assets` | All embedded resources. `include_str!` for Lua stdlib; `include_bytes!` for icons/fonts (TODO). |
@@ -50,7 +50,7 @@ needing to carry a reference.
 
 Startup sequence inside `LuaRuntime::run`:
 1. `api::register_all` — register `shell.*`, `ui`, and `shell.services.*` globals.
-2. `load_stdlib` — load `lua/lumen/stdlib.lua` (pure Lua `ui.*` constructors) and
+2. `load_stdlib` — load `lua/nur/stdlib.lua` (pure Lua `ui.*` constructors) and
    register widget modules into `package.preload`.
 3. `context::with_cx(cx, ...)` — set the thread-local cx pointer, execute the
    user config, clear the pointer.
@@ -157,7 +157,7 @@ built-in layer shell support (no external Wayland library needed). The
 |---|---|
 | `api/shell.rs` | `shell.window`, `shell.state`, `shell.interval`, `shell.once`, `shell.exec`, `shell.watch_file`, `shell.quit` |
 | `api/ui.rs` | `ui` table (Rust-native components go here; pure-Lua constructors are in stdlib) |
-| `api/services.rs` | `shell.services.battery`, `.audio`, `.network`, `.compositor` |
+| `api/services.rs` | `shell.services.applications`, `.battery`, `.audio`, `.network`, `.compositor`, `.sysinfo`, `.power_profiles`, `.mpris`, `.bluetooth`, `.notifications`, `.systemtray` |
 
 **mlua error handling:** `mlua::Error` is `!Send + !Sync`, so it cannot be
 converted to `anyhow::Error` with bare `?`. All API registration functions
@@ -183,17 +183,19 @@ impl FooService {
 }
 ```
 
-Services are started in `api/services.rs` during app init. Their initial values
-are written into Lua tables on `shell.services.*`. Live updates are a TODO —
-the next step is to create a `LuaState` per service and call `state.set()`
-when the GPUI entity updates, which will automatically trigger re-renders.
+Services are started in `api/services.rs` during app init. Each service entity
+is observed by the runtime bridge, mirrored into a reactive `LuaState`, and
+published on `shell.services.*`. Read-only services expose `:get()` and
+`:subscribe()`. Action-capable services are wrapped in a `ServiceHandle` that
+also exposes methods like `:set_volume(...)`, `:play_pause()`, or
+`:dismiss(id)`.
 
 Compositor auto-detection (`services/src/compositor/mod.rs`) checks
 `$HYPRLAND_INSTANCE_SIGNATURE` and `$NIRI_SOCKET` environment variables.
 
 ---
 
-## `lua/lumen/` — the Lua standard library
+## `lua/nur/` — the Lua standard library
 
 Loaded at startup before the user config runs. Extends the `ui` table (created
 empty by Rust) with pure-Lua constructors:
@@ -236,13 +238,13 @@ WindowKind::LayerShell(LayerShellOptions {
 ## Known TODOs / next development steps
 
 ### High priority
-1. **Live service updates** — wrap each `Entity<ServiceState>` in a `LuaState`;
-   observe the entity and call `state.set()` when it changes. This makes
-   battery/network/audio truly reactive from Lua.
-2. **`shell.watch_file`** — implement using `inotify`. Crucial for live config
+1. **`shell.watch_file`** — implement using `inotify`. Crucial for live config
    reload without restarting the process.
-3. **SVG icons** — implement `LuaElement::Icon::into_any_element` to load from
+2. **SVG icons** — implement `LuaElement::Icon::into_any_element` to load from
    `assets/icons/*.svg` using GPUI's image rendering pipeline.
+3. **Harden service backends** — several integrations are still polling or CLI-backed
+   (`wpctl`, `nmcli`, `playerctl`, `bluetoothctl`, `powerprofilesctl`) and need
+   more native/event-driven implementations over time.
 
 ### Medium priority
 4. **`ui.button(props)`** — clickable element with `on_click` callback. Requires

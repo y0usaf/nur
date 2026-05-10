@@ -96,7 +96,11 @@ cargo check
 # Build
 cargo build --bin nur
 
-# Run (must be inside nix develop for library paths)
+# Run — forward the niri session environment so services work correctly.
+# NIRI_SOCKET: compositor IPC (workspaces, active window)
+# XDG_DATA_DIRS: desktop file locations (applications service)
+# These are set in the systemd user environment but nix develop resets them.
+eval $(systemctl --user show-environment | grep -E '^(NIRI_SOCKET|XDG_DATA_DIRS)=' | sed 's/^/export /')
 ./target/debug/nur
 
 # Install example config
@@ -156,6 +160,7 @@ WindowKind::LayerShell(LayerShellOptions {
 | State changes but window doesn't update | View not registered as notifier | `context::register_view_notifier` called in `open_shell_window` |
 | `NoWaylandLib` panic | Running outside `nix develop` | Run inside dev shell; `LD_LIBRARY_PATH` must include Wayland/Vulkan libs |
 | `Lua runtime not initialised` panic | `vm::with_lua` called before `LuaRuntime::new()` | Ensure `LuaRuntime` is created before any render callbacks fire |
+| Services return empty/zero on NixOS | `nix develop` resets `NIRI_SOCKET` and `XDG_DATA_DIRS` | `eval $(systemctl --user show-environment \| grep -E '^(NIRI_SOCKET\|XDG_DATA_DIRS)=' \| sed 's/^/export /')` before running |
 
 ---
 
@@ -172,38 +177,51 @@ crates/runtime/src/
   context.rs      — APP_PTR thread-local; with_cx / current_cx / notify_all_views
   api/
     mod.rs        — register_all(); error type boundary
-    shell.rs      — shell.window / state / interval / once / exec / quit
+    shell.rs      — shell.window / get_window / state / interval / once / exec / quit /
+                     clipboard_read / clipboard_write / displays / reload / tween
     ui.rs         — ui table (Rust-native components)
     services.rs   — shell.services.*
   bridge/
     mod.rs        — re-exports
-    element.rs    — LuaElement enum; from_lua_table; into_any_element
+    element.rs    — element types (hbox/vbox/text/icon/image/button/slider/input/etc.); from_lua_table; into_any_element
     state.rs      — LuaState; reactive value with notifier chain
-    window.rs     — LuaView (Render impl); LuaWindowHandle userdata; open_shell_window
+    window.rs     — LuaView; LuaWindowHandle (show/hide/toggle); window registry; open_shell_window
 
 crates/services/src/
   lib.rs          — pub re-exports of all services
-  battery.rs      — BatteryService / BatteryState (sysfs + upower TODO)
-  audio.rs        — AudioService / AudioState (PipeWire TODO)
-  network.rs      — NetworkService / NetworkState (NetworkManager TODO)
+  applications.rs — ApplicationsService / ApplicationsState (.desktop scan + inotify)
+  battery.rs      — BatteryService / BatteryState (sysfs polling; UPower still TODO)
+  audio.rs        — AudioService / AudioState (`wpctl` polling + actions)
+  network.rs      — NetworkService / NetworkState (sysfs + `nmcli` polling)
+  bluetooth.rs    — BluetoothService / BluetoothState (`bluetoothctl` polling + actions)
+  mpris.rs        — MprisService / MprisState (`playerctl` polling + actions)
+  notifications.rs — NotificationsService / NotificationsState (zbus daemon + actions)
+  power_profiles.rs — PowerProfilesService / PowerProfilesState (`powerprofilesctl` polling + actions)
+  sys_info.rs     — SysInfoService / SysInfoState (`sysinfo` crate)
+  system_tray.rs  — SystemTrayService / SystemTrayState (SNI watcher + actions)
   compositor/
-    mod.rs        — CompositorService; auto-detect Hyprland vs Niri
-    hyprland.rs   — Hyprland IPC event stream (stub)
-    niri.rs       — Niri IPC event stream (stub)
+    mod.rs        — CompositorService; auto-detect Hyprland vs Niri vs Sway/i3
+    hyprland.rs   — Hyprland IPC event stream
+    niri.rs       — Niri IPC event stream
+    sway.rs       — Sway/i3 IPC event stream (swayipc crate)
 
 crates/assets/src/
-  lib.rs          — LUA_STDLIB / LUA_MODULES (include_str!); LumenAssets
+  lib.rs          — LUA_STDLIB / LUA_MODULES (include_str!); NurAssets
 
-lua/lumen/
-  stdlib.lua      — ui.hbox / vbox / text / spacer / icon / bar_layout
+lua/nur/
+  stdlib.lua      — ui.hbox/vbox/text/spacer/icon/button/separator/progress_bar/
+                     circular_progress/overlay/scroll/image/slider/input + ui.when/map/fragment + bar_layout
+  theme.lua       — design tokens, presets (catppuccin, gruvbox, tokyo_night, nord)
   utils.lua       — round / fmt_bytes / clamp / trim
   widgets/
-    clock.lua     — Clock.new({ format, interval })
-    battery.lua   — Battery.new()
+    clock.lua      — Clock.new({ format, interval })
+    battery.lua    — Battery.new()
     workspaces.lua — Workspaces.new()
+    network.lua    — Network.new()
+    mpris.lua      — Mpris.new()
 
 nix/
-  module.nix      — home-manager programs.lumen module
+  module.nix      — home-manager programs.nur module
   lib.nix         — mkBar / mkClock / mkBattery / mkWorkspaces helpers
   package.nix     — (unused stub; derivation is inline in flake.nix)
 ```
