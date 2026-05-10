@@ -9,6 +9,8 @@
 
 -- ui.hbox(props) / ui.hstack(props)
 -- Horizontal flex row.  `props.children` is a sequential table of elements.
+-- Style props: bg, border_radius, opacity, width, height, min_width,
+-- max_width, min_height, max_height, overflow ("hidden"), cursor ("pointer").
 function ui.hbox(props)
     props = props or {}
     props.type = "hbox"
@@ -17,7 +19,7 @@ end
 ui.hstack = ui.hbox
 
 -- ui.vbox(props) / ui.vstack(props)
--- Vertical flex column.
+-- Vertical flex column.  Same style props as hbox.
 function ui.vbox(props)
     props = props or {}
     props.type = "vbox"
@@ -38,6 +40,8 @@ end
 -- ui.text(content_or_props)
 -- `content` may be a plain string, a LuaState (auto-read), or a props table
 -- with a `content` / `text` key.
+-- Style props: size, color (0xRRGGBB or "#rrggbb"), weight ("bold" or 100-900),
+-- italic (bool), font_family (string), line_height (f32).
 function ui.text(content_or_props)
     if type(content_or_props) == "string" then
         return { type = "text", content = content_or_props }
@@ -64,18 +68,185 @@ function ui.icon(name_or_props)
     end
 end
 
+-- ui.button(props)
+-- A clickable container.
+-- Props: on_click, hover_bg, gap, padding/padding_*, plus all common style props.
+function ui.button(props)
+    props = props or {}
+    props.type = "button"
+    return props
+end
+
+-- ---------------------------------------------------------------------------
+-- Visual elements
+-- ---------------------------------------------------------------------------
+
+-- ui.separator(props)
+-- A horizontal or vertical dividing line.
+-- Props: orientation ("horizontal"|"vertical"), color (u32), thickness (f32)
+function ui.separator(props)
+    props = props or {}
+    props.type = "separator"
+    return props
+end
+
+-- ui.progress_bar(props)
+-- A horizontal bar showing a fill percentage.
+-- Props: value (0.0-1.0), color (u32), bg (u32), height (f32),
+--        border_radius (f32), width (f32, optional)
+function ui.progress_bar(props)
+    props = props or {}
+    props.type = "progress_bar"
+    return props
+end
+
+-- ui.circular_progress(props)
+-- A text-based circular progress indicator (shows "N%").
+-- Props: value (0.0-1.0), size (f32), color (u32)
+function ui.circular_progress(props)
+    props = props or {}
+    props.type = "circular_progress"
+    return props
+end
+
+-- ui.image(props)
+-- Display an image from a file path or URL.
+-- Props: src (string), width (f32), height (f32)
+function ui.image(props)
+    if type(props) == "string" then
+        return { type = "image", src = props }
+    end
+    props = props or {}
+    props.type = "image"
+    return props
+end
+
+-- ui.slider(props)
+-- An interactive slider.
+-- Props: value (0.0-1.0), on_change (fn(value)), color (u32), bg (u32),
+--        track_height (f32), thumb_size (f32), width (f32)
+function ui.slider(props)
+    props = props or {}
+    props.type = "slider"
+    return props
+end
+
+-- ui.input(props)
+-- A text display field (styled for input appearance).
+-- Props: value (string), placeholder (string), width (f32), height (f32),
+--        font_size (f32), plus common style props (bg, border, border_radius)
+function ui.input(props)
+    props = props or {}
+    props.type = "input"
+    return props
+end
+
+-- ---------------------------------------------------------------------------
+-- Containers
+-- ---------------------------------------------------------------------------
+
+-- ui.overlay(props) / ui.stack(props)
+-- Z-axis stacking of children via absolute positioning.
+-- Props: children (table), width (f32), height (f32)
+function ui.overlay(props)
+    props = props or {}
+    props.type = "overlay"
+    return props
+end
+ui.stack = ui.overlay
+
+-- ui.scroll(props)
+-- A scrollable container.
+-- Props: children (table), max_height (f32),
+--        direction ("vertical"|"horizontal")
+function ui.scroll(props)
+    props = props or {}
+    props.type = "scroll"
+    return props
+end
+
+-- ---------------------------------------------------------------------------
+-- Conditional & list helpers
+-- ---------------------------------------------------------------------------
+
+-- ui.when(condition, element)
+-- Conditional rendering. Returns the element when condition is truthy,
+-- nil otherwise.  Nil children are automatically skipped by the renderer.
+--
+--   children = {
+--       ui.text("Always visible"),
+--       ui.when(battery < 20, ui.text("Low battery!")),
+--   }
+function ui.when(condition, element)
+    if condition then
+        return element
+    end
+    return nil
+end
+
+-- ui.map(list, fn)
+-- Transform a list into element tables.  The callback receives (item, index).
+-- Nil results are filtered out automatically.
+--
+--   children = ui.map(workspaces, function(ws, i)
+--       return ui.text(ws.name)
+--   end)
+function ui.map(list, fn)
+    local result = {}
+    for i, item in ipairs(list) do
+        local el = fn(item, i)
+        if el ~= nil then
+            result[#result + 1] = el
+        end
+    end
+    return result
+end
+
+-- ui.fragment(children)
+-- Returns the children list as-is. Use this to group multiple elements
+-- without introducing a wrapper container.
+function ui.fragment(children)
+    return children
+end
+
+-- ---------------------------------------------------------------------------
+-- Theme-aware window defaults
+-- ---------------------------------------------------------------------------
+
+-- Wrap the Rust shell.window() so that omitted bg/fg/font_size/font_family
+-- fall back to the theme instead of hardcoded Rust defaults.
+local _raw_window = shell.window
+function shell.window(config)
+    local theme = require("nur.theme")
+    config = config or {}
+    if not config.bg then
+        config.bg = theme.hex(theme.window.bg)
+    end
+    if not config.fg then
+        config.fg = theme.hex(theme.window.fg)
+    end
+    if not config.font_size then
+        config.font_size = theme.window.font_size
+    end
+    if not config.font_family and theme.window.font_family then
+        config.font_family = theme.window.font_family
+    end
+    return _raw_window(config)
+end
+
 -- ---------------------------------------------------------------------------
 -- Convenience helpers
 -- ---------------------------------------------------------------------------
 
 -- Build a horizontal bar section with left / center / right regions.
--- Returns a single hbox element.
+-- Spacing comes from the theme so bar_layout respects user customization.
 function ui.bar_layout(left, center, right)
-    return ui.hbox({ fill = true, children = {
-        ui.hbox({ children = left  or {} }),
-        ui.spacer(),
-        ui.hbox({ children = center or {} }),
-        ui.spacer(),
-        ui.hbox({ children = right  or {} }),
+    local theme = require("nur.theme")
+    local pad = theme.bar_padding
+    local gap = theme.widget_gap
+    return ui.hbox({ fill = true, padding_left = pad, padding_right = pad, children = {
+        ui.hbox({ gap = gap, fill = true,                    children = left   or {} }),
+        ui.hbox({ gap = gap, fill = true, justify = "center", children = center or {} }),
+        ui.hbox({ gap = gap, fill = true, justify = "end",   children = right  or {} }),
     }})
 end
