@@ -37,6 +37,7 @@ pub mod bridge;
 mod context;
 mod vm;
 
+pub use api::{eval_lua, send_msg, set_config_path};
 pub use vm::LuaRuntime;
 
 // Implement the GPUI Global marker so main.rs can call cx.set_global(runtime),
@@ -45,4 +46,3 @@ impl gpui::Global for LuaRuntime {}
 
 #[cfg(test)]
 mod lua_tests;
-

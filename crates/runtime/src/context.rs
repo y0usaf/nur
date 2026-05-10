@@ -12,16 +12,12 @@
 //!   - The pointer is cleared at the end of every `with_cx` scope.
 //!   - Lua config execution is synchronous within `with_cx`.
 
-use std::cell::{Cell, RefCell};
-use std::ffi::c_void;
 use gpui::App;
+use std::cell::Cell;
+use std::ffi::c_void;
 
 thread_local! {
     static APP_PTR: Cell<*mut c_void> = const { Cell::new(std::ptr::null_mut()) };
-
-    /// Callbacks that notify GPUI views to re-render.
-    /// Populated when windows are created; called whenever any LuaState changes.
-    static VIEW_NOTIFIERS: RefCell<Vec<Box<dyn Fn(&mut App)>>> = const { RefCell::new(vec![]) };
 }
 
 /// Run `f` with `cx` registered as the active GPUI context.
@@ -41,41 +37,35 @@ pub fn with_cx<R>(cx: &mut App, f: impl FnOnce() -> R) -> R {
 /// Panics when called outside of a `with_cx` scope — i.e. not during Lua
 /// config execution or a GPUI callback.
 pub fn current_cx<R>(f: impl FnOnce(&mut App) -> R) -> R {
+    try_current_cx(f).expect(
+        "No active GPUI context. \
+         This function must only be called during Lua config execution \
+         or from inside a GPUI event/timer callback.",
+    )
+}
+
+/// Access the active GPUI context, returning `None` when no context is active.
+pub fn try_current_cx<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP_PTR.with(|cell| {
         let ptr = cell.get();
-        assert!(
-            !ptr.is_null(),
-            "No active GPUI context. \
-             This function must only be called during Lua config execution \
-             or from inside a GPUI event/timer callback."
-        );
+        if ptr.is_null() {
+            return None;
+        }
+
         // SAFETY: pointer is set in `with_cx` which ensures the reference
         // stays valid for the entire duration of its scope.
-        f(unsafe { &mut *(ptr as *mut App) })
+        Some(f(unsafe { &mut *(ptr as *mut App) }))
     })
 }
 
-pub(crate) fn has_cx() -> bool {
-    APP_PTR.with(|cell| !cell.get().is_null())
-}
-
-/// Register a callback that will be called with `&mut App` whenever any
-/// `LuaState` value changes.  Used by GPUI views to schedule re-renders.
-pub fn register_view_notifier(f: impl Fn(&mut App) + 'static) {
-    VIEW_NOTIFIERS.with(|n| n.borrow_mut().push(Box::new(f)));
-}
-
-/// Call all registered view notifiers using the current active cx.
-/// No-op if called outside a `with_cx` scope (no cx active).
+/// Called by `LuaState::set` when state changes.
+///
+/// Marks every Lua-backed view dirty. This is intentionally coarse-grained:
+/// Lua render functions can read arbitrary state, and dependency tracking is
+/// not implemented yet.
 pub fn notify_all_views() {
-    if !has_cx() {
-        return;
-    }
-    current_cx(|cx| {
-        VIEW_NOTIFIERS.with(|n| {
-            for f in n.borrow().iter() {
-                f(cx);
-            }
-        });
+    let _ = try_current_cx(|cx| {
+        crate::bridge::window::notify_all_lua_views(cx);
+        cx.refresh_windows();
     });
 }
