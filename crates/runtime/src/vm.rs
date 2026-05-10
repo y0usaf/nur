@@ -2,9 +2,9 @@
 
 use anyhow::Result;
 use mlua::prelude::*; // includes LuaResult, LuaValue, etc.
+use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
-use std::cell::RefCell;
 
 use gpui::App;
 
@@ -95,4 +95,3 @@ impl LuaRuntime {
         Ok(())
     }
 }
-
