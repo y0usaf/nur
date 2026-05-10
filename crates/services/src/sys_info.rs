@@ -8,9 +8,9 @@
 //! the slot, and pushes updates to the GPUI entity.
 
 use gpui::{App, AppContext, Entity};
-use sysinfo::{Components, CpuRefreshKind, System};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use sysinfo::{Components, CpuRefreshKind, System};
 
 #[derive(Debug, Clone, Default)]
 pub struct SysInfoState {
@@ -66,21 +66,26 @@ impl SysInfoService {
         });
 
         // GPUI task: pick up updates from the slot and notify the entity.
-        cx.spawn(async move |cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_secs(2))
-                .await;
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(2)).await;
 
-            let state = slot_reader.lock().ok().and_then(|mut g| g.take());
-            if let Some(state) = state {
-                cx.update(|cx| {
-                    if let Some(e) = weak.upgrade() {
-                        e.update(cx, |s, cx| {
-                            *s = state;
-                            cx.notify();
-                        });
-                    }
-                });
+                let state = slot_reader.lock().ok().and_then(|mut g| g.take());
+                if let Some(state) = state {
+                    tracing::trace!("sysinfo: got new state cpu={}%", state.cpu_percent);
+                    cx.update(|cx| {
+                        if let Some(e) = weak.upgrade() {
+                            e.update(cx, |s, cx| {
+                                *s = state;
+                                cx.notify();
+                            });
+                        } else {
+                            tracing::warn!("sysinfo: weak entity upgrade failed");
+                        }
+                    });
+                } else {
+                    tracing::trace!("sysinfo: slot empty");
+                }
             }
         })
         .detach();
@@ -196,6 +201,21 @@ mod tests {
         assert_eq!(s.memory_percent, 0);
         assert_eq!(s.temperature, None);
         assert_eq!(s.gpu_percent, None);
+    }
+
+    /// Verify that a live sysinfo poll returns real (non-zero) memory figures.
+    /// This rules out OS-level read failures as the cause of zeros in the bar.
+    #[test]
+    fn live_poll_returns_nonzero_memory() {
+        use sysinfo::{Components, CpuRefreshKind, System};
+        let mut system = System::new_all();
+        let components = Components::new_with_refreshed_list();
+        // Two samples needed for valid CPU delta; we only care about memory here.
+        system.refresh_memory();
+        system.refresh_cpu_specifics(CpuRefreshKind::everything());
+        let state = compute_state(&system, &components);
+        assert!(state.memory_total_gb > 0.0, "total RAM reported as 0");
+        assert!(state.memory_percent > 0, "used RAM reported as 0%");
     }
 
     #[test]

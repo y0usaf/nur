@@ -58,21 +58,23 @@ pub fn start(entity: Entity<CompositorState>, cx: &mut App) {
     });
 
     // GPUI task: drain the slot every 100 ms and notify the entity.
-    cx.spawn(async move |cx| loop {
-        cx.background_executor()
-            .timer(Duration::from_millis(100))
-            .await;
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
 
-        let state = slot_reader.lock().ok().and_then(|mut g| g.take());
-        if let Some(state) = state {
-            cx.update(|cx| {
-                if let Some(e) = weak.upgrade() {
-                    e.update(cx, |s, cx| {
-                        *s = state;
-                        cx.notify();
-                    });
-                }
-            });
+            let state = slot_reader.lock().ok().and_then(|mut g| g.take());
+            if let Some(state) = state {
+                cx.update(|cx| {
+                    if let Some(e) = weak.upgrade() {
+                        e.update(cx, |s, cx| {
+                            *s = state;
+                            cx.notify();
+                        });
+                    }
+                });
+            }
         }
     })
     .detach();
@@ -106,5 +108,9 @@ fn fetch_state() -> CompositorState {
 
     let active_window = Client::get_active().ok().flatten().map(|w| w.title);
 
-    CompositorState { active_workspace: active_id, workspaces, active_window }
+    CompositorState {
+        active_workspace: active_id,
+        workspaces,
+        active_window,
+    }
 }

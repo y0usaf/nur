@@ -20,7 +20,11 @@ pub struct NetworkState {
 
 impl Default for NetworkState {
     fn default() -> Self {
-        Self { connected: true, ssid: None, strength: 100 }
+        Self {
+            connected: false,
+            ssid: None,
+            strength: 0,
+        }
     }
 }
 
@@ -36,30 +40,32 @@ impl NetworkService {
         let slot_reader = slot.clone();
 
         // Polling thread — sysfs reads and nmcli are blocking.
-        std::thread::spawn(move || loop {
-            let state = read_network_state();
-            if let Ok(mut guard) = slot_writer.lock() {
-                *guard = Some(state);
+        std::thread::spawn(move || {
+            loop {
+                let state = read_network_state();
+                if let Ok(mut guard) = slot_writer.lock() {
+                    *guard = Some(state);
+                }
+                std::thread::sleep(Duration::from_secs(5));
             }
-            std::thread::sleep(Duration::from_secs(5));
         });
 
         // GPUI task — picks up updates from the slot.
-        cx.spawn(async move |cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_secs(5))
-                .await;
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(5)).await;
 
-            let state = slot_reader.lock().ok().and_then(|mut g| g.take());
-            if let Some(state) = state {
-                cx.update(|cx| {
-                    if let Some(e) = weak.upgrade() {
-                        e.update(cx, |s, cx| {
-                            *s = state;
-                            cx.notify();
-                        });
-                    }
-                });
+                let state = slot_reader.lock().ok().and_then(|mut g| g.take());
+                if let Some(state) = state {
+                    cx.update(|cx| {
+                        if let Some(e) = weak.upgrade() {
+                            e.update(cx, |s, cx| {
+                                *s = state;
+                                cx.notify();
+                            });
+                        }
+                    });
+                }
             }
         })
         .detach();
@@ -71,7 +77,11 @@ impl NetworkService {
 fn read_network_state() -> NetworkState {
     let connected = is_connected();
     let (ssid, strength) = if connected { read_wifi() } else { (None, 0) };
-    NetworkState { connected, ssid, strength }
+    NetworkState {
+        connected,
+        ssid,
+        strength,
+    }
 }
 
 /// Parse a sysfs `operstate` file content. Returns `true` when the value is `"up"`.
@@ -95,7 +105,11 @@ pub(crate) fn parse_nmcli_output(output: &str) -> (Option<String>, u8) {
         let signal_raw = parts.next().unwrap_or("0");
 
         if active == "yes" {
-            let ssid = if ssid_raw.is_empty() { None } else { Some(ssid_raw.to_string()) };
+            let ssid = if ssid_raw.is_empty() {
+                None
+            } else {
+                Some(ssid_raw.to_string())
+            };
             let strength = signal_raw.trim().parse::<u8>().unwrap_or(0);
             return (ssid, strength);
         }
@@ -240,14 +254,18 @@ mod tests {
     #[test]
     fn network_state_default() {
         let s = NetworkState::default();
-        assert!(s.connected);
+        assert!(!s.connected);
         assert_eq!(s.ssid, None);
-        assert_eq!(s.strength, 100);
+        assert_eq!(s.strength, 0);
     }
 
     #[test]
     fn network_state_clone() {
-        let a = NetworkState { connected: false, ssid: Some("Test".into()), strength: 50 };
+        let a = NetworkState {
+            connected: false,
+            ssid: Some("Test".into()),
+            strength: 50,
+        };
         let b = a.clone();
         assert!(!b.connected);
         assert_eq!(b.ssid.as_deref(), Some("Test"));
