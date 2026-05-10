@@ -34,18 +34,15 @@ Rust handles rendering, window management, and system service integration via
 </div>
 
 ```bash
-# Enter the dev shell (sets up Wayland/Vulkan library paths)
+# Run from the flake package
+nix run
+
+# Or enter the dev shell for local development
 nix develop
-
-# Build
-cargo build --bin nur
-
-# Install an example config
-cp examples/simple-bar/init.lua ~/.config/nur/init.lua
-
-# Run
-./target/debug/nur
+cargo run --bin nur
 ```
+
+Nur loads your config from `~/.config/nur/init.lua` by default.
 
 ---
 
@@ -102,7 +99,7 @@ Config is loaded from (in order):
 | `shell.window(opts)` | Open a layer-shell window |
 | `shell.state(val)` | Create a reactive state value |
 | `shell.interval(ms, fn)` | Run a callback on a timer |
-| `shell.once(fn)` | Run a callback after init |
+| `shell.once(ms, fn)` | Run a callback once after a delay |
 | `shell.exec(cmd)` | Run a shell command synchronously (use during init only) |
 | `shell.exec_async(cmd, fn)` | Run a shell command without blocking the UI |
 | `shell.watch_file(path, fn)` | Watch a file for changes (calls `fn(content)`) |
@@ -114,13 +111,24 @@ Services are reactive `LuaState` values — call `:get()` to read the current
 value. Re-renders trigger automatically when the underlying data changes.
 
 ```lua
+shell.services.applications:get() -- { apps = { { name, exec, icon, comment, keywords, categories }, ... } }
 shell.services.battery:get()    -- { percent, charging }
 shell.services.audio:get()      -- { volume, muted }
 shell.services.network:get()    -- { connected, ssid, strength }
 shell.services.compositor:get() -- { workspaces, active_workspace, active_window }
 shell.services.sysinfo:get()    -- { cpu_percent, memory_percent, memory_used_gb,
                                 --   memory_total_gb, temperature, gpu_percent }
+shell.services.power_profiles:get() -- { active, profiles }
+shell.services.mpris:get()          -- { player_name, status, title, artist, album, art_url,
+                                      --   length, position, volume }
+shell.services.bluetooth:get()      -- { enabled, discovering, devices }
+shell.services.notifications:get()  -- { count, dnd, notifications }
+shell.services.systemtray:get()     -- { items }
 ```
+
+Action-capable services also expose methods such as `:set_volume(...)`,
+`:set_profile(...)`, `:play_pause()`, `:connect(addr)`, `:dismiss(id)`,
+`:activate(id, x, y)`, `:search(query)`, and `:launch(exec)`.
 
 ---
 
@@ -160,8 +168,8 @@ crates/runtime/     -- Lua VM lifecycle and all Lua<->Rust bridging
 crates/services/    -- system integrations (no Lua dependency)
 crates/assets/      -- embedded Lua stdlib and resources
 lua/nur/            -- pure-Lua stdlib, utils, and widget modules
-examples/           -- example configs
-nix/                -- NixOS/home-manager module
+examples/           -- small sample configs
+nix/                -- Nix package, overlay, and home-manager module
 ```
 
 ---
@@ -174,9 +182,20 @@ nix/                -- NixOS/home-manager module
 
 ```nix
 {
-  programs.nur = {
-    enable = true;
-    config = builtins.readFile ./init.lua;
+  inputs.nur.url = "github:y0usaf/nur";
+
+  outputs = { nur, ... }: {
+    # Home-manager:
+    imports = [ nur.homeManagerModules.default ];
+
+    programs.nur = {
+      enable = true;
+      # Optional: if omitted, the module uses inputs.nur.packages.${pkgs.system}.nur.
+      config = builtins.readFile ./init.lua;
+    };
+
+    # Or as an overlay:
+    nixpkgs.overlays = [ nur.overlays.default ];
   };
 }
 ```

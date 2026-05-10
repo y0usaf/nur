@@ -10,7 +10,7 @@
 #     config = '' ... lua ... '';
 #   };
 
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, nurPackage ? (pkgs.nur or null), ... }:
 
 let
   cfg = config.programs.nur;
@@ -20,6 +20,8 @@ in {
 
     package = lib.mkOption {
       type        = lib.types.package;
+      default     = if nurPackage != null then nurPackage else throw "programs.nur.package must be set";
+      defaultText = lib.literalExpression "inputs.nur.packages.${pkgs.system}.nur";
       description = "The nur package. Override to use a local build.";
     };
 
