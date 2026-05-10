@@ -1,7 +1,7 @@
 //! Unix-domain socket IPC for the `nur` CLI.
 //!
 //! The running nur daemon listens on `$XDG_RUNTIME_DIR/nur.sock`.
-//! CLI subcommands (toggle, eval, quit, msg) connect as a client and
+//! CLI subcommands (eval, msg, quit, reload) connect as a client and
 //! send a JSON-encoded `IpcRequest`, then wait for a JSON `IpcResponse`.
 
 use anyhow::{Context, Result, bail};
