@@ -44,10 +44,7 @@ pub const LUA_MODULES: &[(&str, &str)] = &[
         "nur.widgets.system_tray",
         include_str!("../../../lua/nur/widgets/system_tray.lua"),
     ),
-    (
-        "nur.widgets.ags_overlay",
-        include_str!("../../../lua/nur/widgets/ags_overlay.lua"),
-    ),
+
     ("nur.utils", include_str!("../../../lua/nur/utils.lua")),
     ("nur.theme", include_str!("../../../lua/nur/theme.lua")),
     ("nur.wallust", include_str!("../../../lua/nur/wallust.lua")),
