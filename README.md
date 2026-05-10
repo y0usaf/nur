@@ -53,11 +53,11 @@ Nur loads your config from `~/.config/nur/init.lua` by default.
 </div>
 
 ```lua
-local W = require("nur.widgets.clock")
-local clock = W.Clock.new({ format = "%H:%M" })
+local Clock = require("nur.widgets.clock")
+local clock = Clock.new({ format = "%H:%M" })
 
 local win = shell.window({
-    anchor = "top",
+    position = "top",
     height = 32,
     bg = "#1e1e2e",
     fg = "#cdd6f4",
@@ -85,6 +85,26 @@ Config is loaded from (in order):
 1. `$NUR_CONFIG`
 2. `$XDG_CONFIG_HOME/nur/init.lua`
 3. `~/.config/nur/init.lua`
+
+---
+
+<div align="center">
+
+## CLI
+
+</div>
+
+Run `nur` without a subcommand to start the shell daemon. Once it is running,
+the same binary can control it over `$XDG_RUNTIME_DIR/nur.sock`:
+
+```bash
+nur reload                    # re-run the active config
+nur quit                      # stop the running shell
+nur eval 'os.date()'          # evaluate Lua in the running VM
+nur msg 'toggle-calendar'     # send a string to shell.on_msg(...)
+```
+
+Use `NUR_CONFIG=/path/to/init.lua nur` to start with a non-default config.
 
 ---
 
