@@ -298,7 +298,8 @@ mod stdlib_constructors {
     use super::*;
 
     fn field<T: FromLua>(tbl: &LuaTable, key: &str) -> T {
-        tbl.get::<T>(key).unwrap_or_else(|e| panic!("field '{key}': {e}"))
+        tbl.get::<T>(key)
+            .unwrap_or_else(|e| panic!("field '{key}': {e}"))
     }
 
     // --- API surface check ---
@@ -307,8 +308,17 @@ mod stdlib_constructors {
     fn ui_globals_all_present_after_stdlib_load() {
         let lua = lua_with_stdlib();
         let ui: LuaTable = lua.globals().get("ui").unwrap();
-        for name in ["hbox", "vbox", "text", "icon", "spacer", "bar_layout",
-                     "hstack", "vstack", "label"] {
+        for name in [
+            "hbox",
+            "vbox",
+            "text",
+            "icon",
+            "spacer",
+            "bar_layout",
+            "hstack",
+            "vstack",
+            "label",
+        ] {
             assert!(
                 ui.get::<LuaFunction>(name).is_ok(),
                 "ui.{name} should be a function after stdlib load"
@@ -468,20 +478,14 @@ mod stdlib_constructors {
     #[test]
     fn bar_layout_root_type_is_hbox() {
         let lua = lua_with_stdlib();
-        let result: LuaTable = lua
-            .load("return ui.bar_layout({}, {}, {})")
-            .eval()
-            .unwrap();
+        let result: LuaTable = lua.load("return ui.bar_layout({}, {}, {})").eval().unwrap();
         assert_eq!(field::<String>(&result, "type"), "hbox");
     }
 
     #[test]
     fn bar_layout_fill_is_true() {
         let lua = lua_with_stdlib();
-        let result: LuaTable = lua
-            .load("return ui.bar_layout({}, {}, {})")
-            .eval()
-            .unwrap();
+        let result: LuaTable = lua.load("return ui.bar_layout({}, {}, {})").eval().unwrap();
         assert!(field::<bool>(&result, "fill"));
     }
 
@@ -489,10 +493,7 @@ mod stdlib_constructors {
     fn bar_layout_has_five_children() {
         // Structure: left-hbox | spacer | center-hbox | spacer | right-hbox
         let lua = lua_with_stdlib();
-        let result: LuaTable = lua
-            .load("return ui.bar_layout({}, {}, {})")
-            .eval()
-            .unwrap();
+        let result: LuaTable = lua.load("return ui.bar_layout({}, {}, {})").eval().unwrap();
         let children: LuaTable = result.get("children").unwrap();
         assert_eq!(children.raw_len(), 5);
     }
@@ -500,10 +501,7 @@ mod stdlib_constructors {
     #[test]
     fn bar_layout_child_types_are_correct() {
         let lua = lua_with_stdlib();
-        let result: LuaTable = lua
-            .load("return ui.bar_layout({}, {}, {})")
-            .eval()
-            .unwrap();
+        let result: LuaTable = lua.load("return ui.bar_layout({}, {}, {})").eval().unwrap();
         let children: LuaTable = result.get("children").unwrap();
         let types: Vec<String> = (1..=5_usize)
             .map(|i| {
@@ -528,10 +526,12 @@ mod stdlib_constructors {
     fn bar_layout_with_items_in_left_section() {
         let lua = lua_with_stdlib();
         let result: LuaTable = lua
-            .load(r#"
+            .load(
+                r#"
                 local left = { ui.text("A"), ui.text("B") }
                 return ui.bar_layout(left, {}, {})
-            "#)
+            "#,
+            )
             .eval()
             .unwrap();
         // Dig into children[1] (left hbox) and count its children
