@@ -6,6 +6,7 @@
 
 pub mod hyprland;
 pub mod niri;
+pub mod sway;
 
 use gpui::{App, AppContext, Entity};
 
@@ -33,8 +34,9 @@ impl CompositorService {
 
         match detect_compositor() {
             Compositor::Hyprland => hyprland::start(entity.clone(), cx),
-            Compositor::Niri     => niri::start(entity.clone(), cx),
-            Compositor::Unknown  => {
+            Compositor::Niri => niri::start(entity.clone(), cx),
+            Compositor::Sway => sway::start(entity.clone(), cx),
+            Compositor::Unknown => {
                 tracing::warn!("Unknown compositor — workspace tracking disabled");
             }
         }
@@ -43,7 +45,12 @@ impl CompositorService {
     }
 }
 
-enum Compositor { Hyprland, Niri, Unknown }
+enum Compositor {
+    Hyprland,
+    Niri,
+    Sway,
+    Unknown,
+}
 
 fn detect_compositor() -> Compositor {
     detect_compositor_with(|key| std::env::var(key).is_ok())
@@ -54,6 +61,8 @@ fn detect_compositor_with(has_var: impl Fn(&str) -> bool) -> Compositor {
         Compositor::Hyprland
     } else if has_var("NIRI_SOCKET") {
         Compositor::Niri
+    } else if has_var("SWAYSOCK") || has_var("I3SOCK") {
+        Compositor::Sway
     } else {
         Compositor::Unknown
     }
@@ -75,7 +84,11 @@ mod tests {
 
     #[test]
     fn compositor_state_clone() {
-        let ws = Workspace { id: 1, name: "main".into(), active: true };
+        let ws = Workspace {
+            id: 1,
+            name: "main".into(),
+            active: true,
+        };
         let a = CompositorState {
             active_workspace: 1,
             workspaces: vec![ws],
@@ -100,7 +113,11 @@ mod tests {
 
     #[test]
     fn workspace_clone() {
-        let a = Workspace { id: 3, name: "work".into(), active: false };
+        let a = Workspace {
+            id: 3,
+            name: "work".into(),
+            active: false,
+        };
         let b = a.clone();
         assert_eq!(b.id, 3);
         assert_eq!(b.name, "work");
@@ -112,7 +129,10 @@ mod tests {
 
     #[test]
     fn detect_unknown_when_no_vars_set() {
-        assert!(matches!(detect_compositor_with(|_| false), Compositor::Unknown));
+        assert!(matches!(
+            detect_compositor_with(|_| false),
+            Compositor::Unknown
+        ));
     }
 
     #[test]
@@ -125,6 +145,18 @@ mod tests {
     fn detect_niri_when_socket_set() {
         let result = detect_compositor_with(|k| k == "NIRI_SOCKET");
         assert!(matches!(result, Compositor::Niri));
+    }
+
+    #[test]
+    fn detect_sway_when_swaysock_set() {
+        let result = detect_compositor_with(|k| k == "SWAYSOCK");
+        assert!(matches!(result, Compositor::Sway));
+    }
+
+    #[test]
+    fn detect_sway_when_i3sock_set() {
+        let result = detect_compositor_with(|k| k == "I3SOCK");
+        assert!(matches!(result, Compositor::Sway));
     }
 
     #[test]

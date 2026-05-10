@@ -11,7 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use gpui::{App, Entity};
-use niri_ipc::{Event, Reply, Request, state::{EventStreamState, EventStreamStatePart}};
+use niri_ipc::{
+    Event, Reply, Request,
+    state::{EventStreamState, EventStreamStatePart},
+};
 
 use super::{CompositorState, Workspace};
 
@@ -29,29 +32,31 @@ pub fn start(entity: Entity<CompositorState>, cx: &mut App) {
     });
 
     // GPUI task: drain the slot every 100 ms and notify the entity.
-    cx.spawn(async move |cx| loop {
-        cx.background_executor()
-            .timer(Duration::from_millis(100))
-            .await;
+    cx.spawn(async move |cx| {
+        loop {
+            cx.background_executor()
+                .timer(Duration::from_millis(100))
+                .await;
 
-        let state = slot_reader.lock().ok().and_then(|mut g| g.take());
-        if let Some(state) = state {
-            cx.update(|cx| {
-                if let Some(e) = weak.upgrade() {
-                    e.update(cx, |s, cx| {
-                        *s = state;
-                        cx.notify();
-                    });
-                }
-            });
+            let state = slot_reader.lock().ok().and_then(|mut g| g.take());
+            if let Some(state) = state {
+                cx.update(|cx| {
+                    if let Some(e) = weak.upgrade() {
+                        e.update(cx, |s, cx| {
+                            *s = state;
+                            cx.notify();
+                        });
+                    }
+                });
+            }
         }
     })
     .detach();
 }
 
 fn run(slot: Arc<Mutex<Option<CompositorState>>>) -> anyhow::Result<()> {
-    let socket_path = std::env::var_os("NIRI_SOCKET")
-        .ok_or_else(|| anyhow::anyhow!("NIRI_SOCKET not set"))?;
+    let socket_path =
+        std::env::var_os("NIRI_SOCKET").ok_or_else(|| anyhow::anyhow!("NIRI_SOCKET not set"))?;
 
     let mut stream = UnixStream::connect(&socket_path)?;
 
@@ -160,5 +165,9 @@ fn map_state(state: &EventStreamState) -> CompositorState {
         .find(|w| w.is_focused)
         .and_then(|w| w.title.clone());
 
-    CompositorState { active_workspace: active_workspace_id, workspaces, active_window }
+    CompositorState {
+        active_workspace: active_workspace_id,
+        workspaces,
+        active_window,
+    }
 }

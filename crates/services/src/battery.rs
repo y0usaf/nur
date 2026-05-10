@@ -10,7 +10,10 @@ pub struct BatteryState {
 
 impl Default for BatteryState {
     fn default() -> Self {
-        Self { percent: 100, charging: false }
+        Self {
+            percent: 100,
+            charging: false,
+        }
     }
 }
 
@@ -34,9 +37,9 @@ impl BatteryService {
             //   let mut stream = proxy.receive_percentage_changed().await;
             //   while let Some(change) = stream.next().await { ... }
             //
-            // After updating the entity, the runtime bridge (api/services.rs)
-            // needs to propagate the change to a LuaState so shell.services.battery
-            // reflects the new value — see the services.rs TODO comment.
+            // The runtime bridge already observes the entity and propagates
+            // updates into LuaState, so once battery state changes here
+            // shell.services.battery will refresh automatically.
 
             // Poll sysfs every 30 s
             loop {
@@ -181,7 +184,10 @@ mod tests {
 
     #[test]
     fn battery_state_clone_is_independent() {
-        let a = BatteryState { percent: 50, charging: true };
+        let a = BatteryState {
+            percent: 50,
+            charging: true,
+        };
         let mut b = a.clone();
         b.percent = 99;
         assert_eq!(a.percent, 50);

@@ -19,7 +19,10 @@ pub struct AudioState {
 
 impl Default for AudioState {
     fn default() -> Self {
-        Self { volume: 1.0, muted: false }
+        Self {
+            volume: 1.0,
+            muted: false,
+        }
     }
 }
 
@@ -35,30 +38,32 @@ impl AudioService {
         let slot_reader = slot.clone();
 
         // Polling thread — wpctl is blocking so we run it off the GPUI thread.
-        std::thread::spawn(move || loop {
-            let state = read_audio_state();
-            if let Ok(mut guard) = slot_writer.lock() {
-                *guard = Some(state);
+        std::thread::spawn(move || {
+            loop {
+                let state = read_audio_state();
+                if let Ok(mut guard) = slot_writer.lock() {
+                    *guard = Some(state);
+                }
+                std::thread::sleep(Duration::from_secs(3));
             }
-            std::thread::sleep(Duration::from_secs(3));
         });
 
         // GPUI task — picks up updates from the slot.
-        cx.spawn(async move |cx| loop {
-            cx.background_executor()
-                .timer(Duration::from_secs(3))
-                .await;
+        cx.spawn(async move |cx| {
+            loop {
+                cx.background_executor().timer(Duration::from_secs(3)).await;
 
-            let state = slot_reader.lock().ok().and_then(|mut g| g.take());
-            if let Some(state) = state {
-                cx.update(|cx| {
-                    if let Some(e) = weak.upgrade() {
-                        e.update(cx, |s, cx| {
-                            *s = state;
-                            cx.notify();
-                        });
-                    }
-                });
+                let state = slot_reader.lock().ok().and_then(|mut g| g.take());
+                if let Some(state) = state {
+                    cx.update(|cx| {
+                        if let Some(e) = weak.upgrade() {
+                            e.update(cx, |s, cx| {
+                                *s = state;
+                                cx.notify();
+                            });
+                        }
+                    });
+                }
             }
         })
         .detach();
@@ -131,9 +136,7 @@ fn read_audio_state() -> AudioState {
         .output();
 
     match output {
-        Ok(o) if o.status.success() => {
-            parse_wpctl_output(&String::from_utf8_lossy(&o.stdout))
-        }
+        Ok(o) if o.status.success() => parse_wpctl_output(&String::from_utf8_lossy(&o.stdout)),
         _ => AudioState::default(),
     }
 }
@@ -218,7 +221,10 @@ mod tests {
 
     #[test]
     fn audio_state_clone() {
-        let a = AudioState { volume: 0.5, muted: true };
+        let a = AudioState {
+            volume: 0.5,
+            muted: true,
+        };
         let b = a.clone();
         assert!((b.volume - 0.5).abs() < 1e-5);
         assert!(b.muted);
