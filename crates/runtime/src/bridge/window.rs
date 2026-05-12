@@ -8,14 +8,15 @@
 
 use anyhow::Result;
 use gpui::{
-    AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context, DisplayId, Render, Size,
+    AnyElement, AnyWindowHandle, App, AppContext, Bounds, Context, DisplayId, Pixels, Render, Size,
     WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind,
     WindowOptions, div, layer_shell::*, point, prelude::*, px, rgb, rgba,
 };
 use mlua::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::{Duration, Instant};
 
 use crate::bridge::element::lua_table_to_any_element;
 
@@ -26,8 +27,19 @@ use crate::bridge::element::lua_table_to_any_element;
 thread_local! {
     static WINDOW_REGISTRY: RefCell<HashMap<String, LuaWindowHandle>> = RefCell::new(HashMap::new());
 }
+#[derive(Clone)]
+struct LuaWindowRegistration {
+    weak: WeakEntity<LuaView>,
+    window: WindowHandle<LuaView>,
+    force_reconfigure_on_refresh: bool,
+    configured_size: Size<Pixels>,
+    resize_tick: Rc<Cell<bool>>,
+    created_at: Instant,
+    last_reconfigure: Rc<Cell<Option<Instant>>>,
+}
+
 thread_local! {
-    static LUA_VIEW_REGISTRY: RefCell<Vec<(WeakEntity<LuaView>, WindowHandle<LuaView>)>> = const { RefCell::new(Vec::new()) };
+    static LUA_VIEW_REGISTRY: RefCell<Vec<LuaWindowRegistration>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Register a window handle under a name so it can be retrieved later.
@@ -44,11 +56,18 @@ pub fn get_window(name: &str) -> Option<LuaWindowHandle> {
 pub(crate) fn notify_all_lua_views(cx: &mut App) {
     let views = LUA_VIEW_REGISTRY.with(|views| views.borrow().clone());
 
-    for (weak, window_handle) in &views {
-        if weak.upgrade().is_some() {
-            let _ = window_handle.update(cx, |_view, window, cx| {
+    for registration in &views {
+        if registration.weak.upgrade().is_some() {
+            let _ = registration.window.update(cx, |_view, window, cx| {
                 cx.notify();
-                window.refresh();
+                refresh_lua_window_inner(
+                    window,
+                    registration.force_reconfigure_on_refresh,
+                    registration.configured_size,
+                    &registration.resize_tick,
+                    registration.created_at,
+                    &registration.last_reconfigure,
+                );
             });
         }
     }
@@ -56,7 +75,7 @@ pub(crate) fn notify_all_lua_views(cx: &mut App) {
     LUA_VIEW_REGISTRY.with(|views| {
         views
             .borrow_mut()
-            .retain(|(weak, _)| weak.upgrade().is_some());
+            .retain(|registration| registration.weak.upgrade().is_some());
     });
 }
 
@@ -184,6 +203,77 @@ impl Render for LuaView {
 pub struct LuaWindowHandle {
     entity: WeakEntity<LuaView>,
     window: AnyWindowHandle,
+    /// Anchored layer-shell popup surfaces need a real configure/resize nudge
+    /// to get Blade/Wayland to present new contents after the first frame.
+    force_reconfigure_on_refresh: bool,
+    configured_size: Size<Pixels>,
+    resize_tick: Rc<Cell<bool>>,
+    created_at: Instant,
+    last_reconfigure: Rc<Cell<Option<Instant>>>,
+}
+
+/// Explicitly schedule a repaint for a Lua-backed window.
+///
+/// `cx.notify()` marks the view entity as changed, but layer-shell popup
+/// surfaces can otherwise remain visually stale until a configure/present
+/// cycle happens. For those anchored popups we nudge the configured width by
+/// one pixel on alternating refreshes, which forces the Wayland/Blade surface
+/// path to present the freshly-rendered scene.
+fn refresh_lua_window_inner(
+    window: &mut Window,
+    force_reconfigure_on_refresh: bool,
+    configured_size: Size<Pixels>,
+    resize_tick: &Cell<bool>,
+    created_at: Instant,
+    last_reconfigure: &Cell<Option<Instant>>,
+) {
+    window.refresh();
+
+    if force_reconfigure_on_refresh {
+        let now = Instant::now();
+
+        // Do not resize-nudge while the layer-shell surface is still going
+        // through its initial configure/swapchain setup, and coalesce bursts
+        // from service updates. Rapid reconfiguration can trip Blade/Vulkan
+        // swapchain creation on Wayland.
+        if now.duration_since(created_at) < Duration::from_millis(500)
+            || last_reconfigure
+                .get()
+                .is_some_and(|last| now.duration_since(last) < Duration::from_millis(250))
+        {
+            return;
+        }
+        last_reconfigure.set(Some(now));
+
+        let bumped = resize_tick.get();
+        resize_tick.set(!bumped);
+
+        let mut size = configured_size;
+        if bumped {
+            size.width += px(1.0);
+        }
+        window.resize(size);
+    }
+}
+
+fn refresh_lua_window(handle: &LuaWindowHandle, cx: &mut App) {
+    if cx
+        .update_window(handle.window, |_, window, _| {
+            refresh_lua_window_inner(
+                window,
+                handle.force_reconfigure_on_refresh,
+                handle.configured_size,
+                &handle.resize_tick,
+                handle.created_at,
+                &handle.last_reconfigure,
+            );
+        })
+        .is_err()
+    {
+        // If the specific window is currently unavailable (e.g. already on
+        // GPUI's update stack), fall back to the coarse app-wide refresh.
+        cx.refresh_windows();
+    }
 }
 
 impl LuaUserData for LuaWindowHandle {
@@ -200,6 +290,7 @@ impl LuaUserData for LuaWindowHandle {
                         cx.notify();
                     });
                 }
+                refresh_lua_window(this, cx);
             });
 
             Ok(())
@@ -210,6 +301,7 @@ impl LuaUserData for LuaWindowHandle {
             let window = this.window;
             crate::context::current_cx(|cx| {
                 let _ = cx.update_window(window, |_, window, _| window.remove_window());
+                cx.refresh_windows();
             });
             Ok(())
         });
@@ -224,6 +316,7 @@ impl LuaUserData for LuaWindowHandle {
                         cx.notify();
                     });
                 }
+                refresh_lua_window(this, cx);
             });
             Ok(())
         });
@@ -238,6 +331,7 @@ impl LuaUserData for LuaWindowHandle {
                         cx.notify();
                     });
                 }
+                refresh_lua_window(this, cx);
             });
             Ok(())
         });
@@ -252,6 +346,7 @@ impl LuaUserData for LuaWindowHandle {
                         cx.notify();
                     });
                 }
+                refresh_lua_window(this, cx);
             });
             Ok(())
         });
@@ -567,10 +662,38 @@ pub fn open_shell_window(config: WindowConfig, cx: &mut App) -> Result<LuaWindow
         .take()
         .expect("open_window builder did not set entity");
 
-    LUA_VIEW_REGISTRY.with(|views| views.borrow_mut().push((weak.clone(), window_handle)));
+    let force_reconfigure_on_refresh = config.anchor.is_some();
+
+    // Blade/Vulkan on Wayland can race swapchain creation when several
+    // small anchored layer-shell surfaces are opened back-to-back. Give the
+    // compositor/backend a short breather between popup surface creations.
+    if force_reconfigure_on_refresh {
+        std::thread::sleep(Duration::from_millis(40));
+    }
+
+    let resize_tick = Rc::new(Cell::new(false));
+    let created_at = Instant::now();
+    let last_reconfigure = Rc::new(Cell::new(None));
+
+    LUA_VIEW_REGISTRY.with(|views| {
+        views.borrow_mut().push(LuaWindowRegistration {
+            weak: weak.clone(),
+            window: window_handle,
+            force_reconfigure_on_refresh,
+            configured_size: window_size,
+            resize_tick: resize_tick.clone(),
+            created_at,
+            last_reconfigure: last_reconfigure.clone(),
+        })
+    });
 
     Ok(LuaWindowHandle {
         entity: weak,
         window: window_handle.into(),
+        force_reconfigure_on_refresh,
+        configured_size: window_size,
+        resize_tick,
+        created_at,
+        last_reconfigure,
     })
 }
