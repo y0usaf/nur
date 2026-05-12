@@ -186,7 +186,7 @@ local function open_edge(edge, content, items, total_width, opts)
         margin_top = edge == "top" and (opts.margin_top or 0) or 0,
         margin_bottom = edge == "bottom" and (opts.margin_bottom or 0) or 0,
         layer = "overlay",
-        exclusive = opts.exclusive ~= false,
+        exclusive = opts.exclusive == true,
         bg = "transparent",
         fg = fg,
         font_size = 14,
