@@ -3,7 +3,7 @@ mod ipc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use gpui::Application;
+use gpui::{Application, QuitMode};
 use tracing::info;
 
 // ---------------------------------------------------------------------------
@@ -82,6 +82,7 @@ fn run_daemon() -> Result<()> {
 
     Application::new()
         .with_assets(assets::source())
+        .with_quit_mode(QuitMode::Explicit)
         .run(move |cx| {
             // Start the IPC server before running the Lua config so that
             // shell.on_msg can be registered during config execution.

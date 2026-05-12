@@ -45,17 +45,45 @@ local function file_exists(path)
     return shell.exec("test -f " .. shquote(path) .. " && printf yes || true") == "yes"
 end
 
+local function cache_absolute_icon(path)
+    -- Some SNI providers expose temporary /run/user tray-icon PNGs and then
+    -- replace/unlink them before GPUI's async image loader opens the file. Copy
+    -- absolute icon paths to a Nur-owned stable cache first.
+    local runtime = os.getenv("XDG_RUNTIME_DIR") or "/tmp"
+    local cache_dir = runtime .. "/nur-tray-icon-cache"
+    local key = path:gsub("[^%w%._%-]", "_")
+    if #key > 180 then key = key:sub(#key - 179) end
+    local dest = cache_dir .. "/" .. key
+    local cmd = "mkdir -p " .. shquote(cache_dir)
+        .. " && cp -f " .. shquote(path) .. " " .. shquote(dest) .. " 2>/dev/null"
+        .. " && printf %s " .. shquote(dest)
+        .. " || true"
+    local copied = shell.exec(cmd)
+    if copied ~= "" and file_exists(copied) then return copied end
+    return nil
+end
+
 function M.resolve_icon_path(name)
     name = tostring(name or "")
     if name == "" then return nil end
 
-    if icon_cache[name] ~= nil then
-        return icon_cache[name] ~= false and icon_cache[name] or nil
+    if name:sub(1, 1) == "/" then
+        local cached = icon_cache[name]
+        if cached and cached ~= false and file_exists(cached) then return cached end
+        if file_exists(name) then
+            local stable = cache_absolute_icon(name)
+            if stable then
+                icon_cache[name] = stable
+                return stable
+            end
+        end
+        -- Do not cache misses for volatile absolute paths; providers may create
+        -- the file shortly after publishing the item.
+        return nil
     end
 
-    if name:sub(1, 1) == "/" and file_exists(name) then
-        icon_cache[name] = name
-        return name
+    if icon_cache[name] ~= nil then
+        return icon_cache[name] ~= false and icon_cache[name] or nil
     end
 
     local base = name:gsub("%.[%w]+$", "")
@@ -112,13 +140,12 @@ function M.icon(item, opts)
     opts = opts or {}
     local size = opts.icon_size or 16
     local name = item.icon_name or ""
-    local path = M.resolve_icon_path(name)
 
-    if path then
-        return ui.image({ src = path, width = size, height = size })
-    end
-
-    if name ~= "" then
+    -- Avoid ui.image for StatusNotifier absolute/PNG icon paths. Several tray
+    -- providers publish volatile /run/user PNGs, and loading/reloading those
+    -- through GPUI's image path can crash Blade/Wayland. Named SVG icons go
+    -- through ui.icon; absolute paths fall back to a stable text label.
+    if name ~= "" and name:sub(1, 1) ~= "/" then
         return ui.icon({ name = name, size = size })
     end
 
