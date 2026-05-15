@@ -6,13 +6,15 @@
 //!
 //! Actions: `activate(id, x, y)`, `secondary_activate(id, x, y)`, `context_menu(id, x, y)`.
 //!
-//! Icon pixmap handling is still deferred; icon-name is used when available.
+//! Falls back to IconPixmap caching when IconName is missing.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use gpui::{App, AppContext, Entity};
+use image::{ImageBuffer, Rgba};
 use zbus::message::Header;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -132,6 +134,61 @@ fn owned_value_to_string(value: zbus::zvariant::OwnedValue) -> Option<String> {
     }
 }
 
+fn tray_icon_cache_dir() -> PathBuf {
+    std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::env::temp_dir())
+        .join("nur-tray-icon-cache")
+}
+
+fn owned_value_to_icon_pixmaps(
+    value: zbus::zvariant::OwnedValue,
+) -> Option<Vec<(i32, i32, Vec<u8>)>> {
+    <Vec<(i32, i32, Vec<u8>)>>::try_from(value).ok()
+}
+
+fn sanitize_cache_key_part(s: &str) -> String {
+    s.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect()
+}
+
+fn cache_icon_pixmap(
+    service_name: &str,
+    object_path: &str,
+    pixmaps: Vec<(i32, i32, Vec<u8>)>,
+) -> Option<String> {
+    let (width, height, bytes) = pixmaps
+        .into_iter()
+        .filter(|(w, h, bytes)| *w > 0 && *h > 0 && bytes.len() == (*w as usize * *h as usize * 4))
+        .min_by_key(|(w, h, _)| {
+            let area = (*w as i64) * (*h as i64);
+            (area - 24 * 24).abs()
+        })?;
+
+    let mut rgba = Vec::with_capacity(bytes.len());
+    for chunk in bytes.chunks_exact(4) {
+        // SNI IconPixmap is ARGB32 in network byte order => [A, R, G, B].
+        rgba.extend_from_slice(&[chunk[1], chunk[2], chunk[3], chunk[0]]);
+    }
+
+    let image: ImageBuffer<Rgba<u8>, Vec<u8>> =
+        ImageBuffer::from_vec(width as u32, height as u32, rgba)?;
+
+    let cache_dir = tray_icon_cache_dir();
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let key = format!(
+        "{}_{}-{}x{}.png",
+        sanitize_cache_key_part(service_name),
+        sanitize_cache_key_part(object_path),
+        width,
+        height
+    );
+    let path = cache_dir.join(key);
+    image.save(&path).ok()?;
+    Some(path.to_string_lossy().into_owned())
+}
+
 fn read_sni_item(
     conn: &zbus::blocking::Connection,
     service_name: &str,
@@ -145,7 +202,16 @@ fn read_sni_item(
     };
 
     let title = get_string_prop("Title");
-    let icon_name = get_string_prop("IconName");
+    let mut icon_name = get_string_prop("IconName");
+    if icon_name.is_empty() {
+        if let Some(pixmaps) = read_property_value(conn, service_name, object_path, iface, "IconPixmap")
+            .and_then(owned_value_to_icon_pixmaps)
+        {
+            if let Some(path) = cache_icon_pixmap(service_name, object_path, pixmaps) {
+                icon_name = path;
+            }
+        }
+    }
     let status = get_string_prop("Status");
     let category = get_string_prop("Category");
     let menu = get_string_prop("Menu");
