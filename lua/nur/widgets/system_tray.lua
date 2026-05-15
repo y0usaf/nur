@@ -141,11 +141,27 @@ function M.icon(item, opts)
     local size = opts.icon_size or 16
     local name = item.icon_name or ""
 
-    -- Avoid ui.image for StatusNotifier absolute/PNG icon paths. Several tray
-    -- providers publish volatile /run/user PNGs, and loading/reloading those
-    -- through GPUI's image path can crash Blade/Wayland. Named SVG icons go
-    -- through ui.icon; absolute paths fall back to a stable text label.
-    if name ~= "" and name:sub(1, 1) ~= "/" then
+    if name == "" then
+        return fallback_label(item, opts)
+    end
+
+    -- Resolve the icon name through the multi-format icon-theme search
+    -- (SVG + PNG + XPM across all XDG icon directories). This catches PNG
+    -- icons in fixed-size directories (e.g. hicolor/48x48/apps/) that the
+    -- Rust-side NurAssets SVG-only loader misses.
+    local path = M.resolve_icon_path(name)
+    if path then
+        -- SVG files go through ui.icon (GPUI svg element); raster images
+        -- (PNG, XPM, etc.) go through ui.image (GPUI img element).
+        if path:sub(-4):lower() == ".svg" then
+            return ui.icon({ name = name, path = path, size = size })
+        end
+        return ui.image({ src = path, width = size, height = size })
+    end
+
+    -- Fall back to ui.icon for the rare case where a scalable SVG is
+    -- available through the Rust asset system but not via shell find.
+    if name:sub(1, 1) ~= "/" then
         return ui.icon({ name = name, size = size })
     end
 
@@ -165,6 +181,9 @@ function M.item(item, opts)
         border_radius = opts.item_border_radius or 0,
         on_click = function()
             shell.services.systemtray:activate(item.id, opts.click_x or 0, opts.click_y or 0)
+        end,
+        on_right_click = function(x, y)
+            shell.services.systemtray:context_menu(item.id, x, y)
         end,
         children = { M.icon(item, opts) },
     })
@@ -193,6 +212,13 @@ function M.new(opts)
             children = children,
         })
     end
+
+    -- Periodically clear the icon cache so that icons that failed to
+    -- resolve on first attempt (e.g. because the SNI provider hadn't
+    -- published them yet) get retried.
+    shell.interval(60000, function()
+        icon_cache = {}
+    end)
 
     return self
 end

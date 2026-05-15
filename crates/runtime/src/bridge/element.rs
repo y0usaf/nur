@@ -319,7 +319,19 @@ pub fn lua_table_to_any_element(table: LuaTable) -> LuaResult<AnyElement> {
             let width: f32 = table.get("width").unwrap_or(0.0);
             let height: f32 = table.get("height").unwrap_or(0.0);
 
-            let mut el = img(src);
+            // GPUI treats plain strings as embedded asset keys unless they are
+            // valid URIs. For local tray/icon theme files we need to pass a
+            // PathBuf so GPUI loads from the filesystem instead of looking up
+            // an embedded resource named "/run/user/...png".
+            let mut el = if src.starts_with('/')
+                || src.starts_with("./")
+                || src.starts_with("../")
+                || std::path::Path::new(&src).exists()
+            {
+                img(std::path::PathBuf::from(&src))
+            } else {
+                img(src)
+            };
             if width > 0.0 {
                 el = el.w(px(width));
             }
@@ -367,6 +379,31 @@ pub fn lua_table_to_any_element(table: LuaTable) -> LuaResult<AnyElement> {
                                 crate::context::with_cx(cx, || {
                                     if let Err(e) = f.call::<()>(()) {
                                         tracing::error!("button on_click error: {e}");
+                                    }
+                                    crate::context::notify_all_views();
+                                });
+                            }
+                        });
+                    })
+                }
+                None => el,
+            };
+
+            // on_right_click callback stored in the Lua registry.
+            // Receives mouse (x, y) as i32 arguments so callers (e.g. system
+            // tray widget) can pass screen coordinates to D-Bus context menus.
+            let el = match table.get::<LuaFunction>("on_right_click").ok() {
+                Some(f) => {
+                    let key = crate::vm::with_lua(|lua| lua.create_registry_value(f))
+                        .map_err(|e| LuaError::RuntimeError(e.to_string()))?;
+                    el.on_mouse_down(MouseButton::Right, move |ev, _window, cx| {
+                        let x = f32::from(ev.position.x) as i32;
+                        let y = f32::from(ev.position.y) as i32;
+                        crate::vm::with_lua(|lua| {
+                            if let Ok(f) = lua.registry_value::<LuaFunction>(&key) {
+                                crate::context::with_cx(cx, || {
+                                    if let Err(e) = f.call::<()>((x, y)) {
+                                        tracing::error!("button on_right_click error: {e}");
                                     }
                                     crate::context::notify_all_views();
                                 });

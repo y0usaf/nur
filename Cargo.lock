@@ -4777,6 +4777,7 @@ dependencies = [
  "anyhow",
  "gpui",
  "hyprland",
+ "image",
  "inotify",
  "niri-ipc",
  "serde_json",
