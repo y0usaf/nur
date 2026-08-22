@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **Nur is archived.** Moonshell succeeded it, then merged into [tomoe](https://github.com/y0usaf/tomoe). Use tomoe instead.
+
 <div align="center">
 
 # nur — نور
@@ -9,17 +12,6 @@ Rust handles rendering, window management, and system service integration via
 [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) (Zed's UI framework) and Vulkan/Blade.
 
 </div>
-
----
-
-> **Winding down.** nur's successor path changed twice: first
-> [moonshell](https://github.com/y0usaf/moonshell) (the lean standalone
-> rewrite), which has itself now merged into
-> [tomoe](https://github.com/y0usaf/tomoe) as its in-process shell
-> subsystem — see tomoe's `FUSION.md`. The `shell.*`/`ui.*` Lua
-> contract, stdlib, and widgets live on there; nur remains the
-> GPUI-based reference until the fused shell reaches widget parity
-> (FUSION F3).
 
 ---
 
